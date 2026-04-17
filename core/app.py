@@ -71,8 +71,8 @@ class Application:
     def _on_toggle_menu(self):
         """Toggle menu"""
         self.imgui_ui.show_menu = not self.imgui_ui.show_menu
-        # Unlock mouse when menu opens, lock when closes
-        self.input_handler.set_mouse_locked(not self.imgui_ui.show_menu)
+        # Show mouse cursor when menu opens, hide when closes
+        pygame.mouse.set_visible(self.imgui_ui.show_menu)
 
     def run(self):
         """Run application"""
@@ -113,7 +113,7 @@ class Application:
             # 7. ImGui UI
             imgui.new_frame()
             if self.imgui_ui.show_menu:
-                self.running = self.imgui_ui.draw_menu(
+                self.imgui_ui.draw_menu(
                     self.session.state.value,
                     callbacks={
                         "connect": lambda: self.session.start_discovery(Config.MDNS_SERVICE_NAME),

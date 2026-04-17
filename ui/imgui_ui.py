@@ -13,7 +13,7 @@ class ImGuiUI:
         self.show_menu = False
         Theme.apply(imgui)
 
-    def draw_menu(self, session_state: str, callbacks: Dict[str, Callable], params: Dict, on_param_change: Optional[Callable] = None) -> bool:
+    def draw_menu(self, session_state: str, callbacks: Dict[str, Callable], params: Dict, on_param_change: Optional[Callable] = None) -> None:
         """Draw tabbed menu
 
         Args:
@@ -21,15 +21,11 @@ class ImGuiUI:
             callbacks: Callback dict {"connect": fn, "disconnect": fn, "quit": fn}
             params: Parameters dict
             on_param_change: Callback for parameter changes
-
-        Returns:
-            running status
         """
         imgui.set_next_window_position(20, 20, imgui.ALWAYS)
         imgui.set_next_window_size(450, 400, imgui.ALWAYS)
 
         expanded, opened = imgui.begin("Menu", True)
-        running = True
 
         if expanded:
             # Tab bar
@@ -66,8 +62,6 @@ class ImGuiUI:
         # Close button (X) only hides menu, doesn't close program
         if not opened:
             self.show_menu = False
-
-        return running
 
     def _draw_connection_tab(self, session_state: str, callbacks: Dict[str, Callable]) -> None:
         """Draw connection tab"""
