@@ -10,13 +10,12 @@ from config import Config
 class ImGuiUI:
     """ImGui UI manager with animations"""
 
-    def __init__(self, fonts=None):
+    def __init__(self):
         self.show_menu = False
         self.menu_alpha = 0.0  # For fade-in animation
         self.menu_scale = 0.95  # For scale animation
         self.menu_open_time = 0.0
         self.animation_duration = 0.3  # seconds
-        self.fonts = fonts or {}
         Theme.apply(imgui)
 
     def _update_menu_animation(self):
@@ -64,15 +63,6 @@ class ImGuiUI:
         expanded, opened = imgui.begin("REMOTE CONTROL", False, imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
 
         if expanded:
-            # Draw title with title font
-            if 'title' in self.fonts:
-                imgui.push_font(self.fonts['title'])
-            imgui.text("REMOTE CONTROL")
-            if 'title' in self.fonts:
-                imgui.pop_font()
-            imgui.separator()
-            imgui.spacing()
-
             # Tab bar with better styling
             if imgui.begin_tab_bar("MenuTabs", imgui.TAB_BAR_FITTING_POLICY_SCROLL):
                 # Connection tab

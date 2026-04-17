@@ -40,28 +40,17 @@ class Application:
         io.display_size = (Config.RENDER_WIDTH, Config.RENDER_HEIGHT)
 
         # Load fonts BEFORE renderer initialization
-        self.fonts = {}
         try:
-            # Title font - larger, bold
-            self.fonts['title'] = io.fonts.add_font_from_file_ttf("C:\\Windows\\Fonts\\calibrib.ttf", 28)
-            print("[App] Loaded Calibri Bold for titles")
+            # Try bold variant first for better visibility
+            io.fonts.add_font_from_file_ttf("C:\\Windows\\Fonts\\segoeuib.ttf", 18)
+            print("[App] Loaded Segoe UI Bold font")
         except:
             try:
-                self.fonts['title'] = io.fonts.add_font_from_file_ttf("C:\\Windows\\Fonts\\arialbd.ttf", 28)
-                print("[App] Loaded Arial Bold for titles")
+                # Fallback to regular Segoe UI
+                io.fonts.add_font_from_file_ttf("C:\\Windows\\Fonts\\segoeui.ttf", 18)
+                print("[App] Loaded Segoe UI font")
             except:
-                print("[App] Using default font for titles")
-
-        try:
-            # Content font - regular, clean
-            self.fonts['content'] = io.fonts.add_font_from_file_ttf("C:\\Windows\\Fonts\\consola.ttf", 18)
-            print("[App] Loaded Consolas for content")
-        except:
-            try:
-                self.fonts['content'] = io.fonts.add_font_from_file_ttf("C:\\Windows\\Fonts\\segoeui.ttf", 18)
-                print("[App] Loaded Segoe UI for content")
-            except:
-                print("[App] Using default font for content")
+                print("[App] Using default font")
 
         # Initialize renderer AFTER font loading
         self.imgui_renderer = PygameRenderer()
@@ -70,7 +59,7 @@ class Application:
         self.session = SessionManager()
         self.video_renderer = VideoRenderer(Config.RENDER_WIDTH, Config.RENDER_HEIGHT)
         self.video_renderer.init_texture()
-        self.imgui_ui = ImGuiUI(fonts=self.fonts)
+        self.imgui_ui = ImGuiUI()
         self.input_handler = InputHandler()
         self.input_mapper = InputMapper()
         self.param_manager = ParamManager()
