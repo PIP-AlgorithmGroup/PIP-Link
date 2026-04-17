@@ -1,5 +1,7 @@
-from core.app import ApplicationController
+"""主入口"""
 
-if __name__ == '__main__':
-    app = ApplicationController()
+from core.app import Application
+
+if __name__ == "__main__":
+    app = Application()
     app.run()
