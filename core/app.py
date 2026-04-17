@@ -119,7 +119,9 @@ class Application:
                         "connect": lambda: self.session.start_discovery(Config.MDNS_SERVICE_NAME),
                         "disconnect": self.session.disconnect,
                         "quit": lambda: setattr(self, "running", False),
-                    }
+                    },
+                    params=self.param_manager.get_all_params(),
+                    on_param_change=self.param_manager.set_param
                 )
             else:
                 self.imgui_ui.draw_status_bar(status)

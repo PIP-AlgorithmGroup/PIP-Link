@@ -11,21 +11,22 @@ class ImGuiUI:
 
     def __init__(self):
         self.show_menu = False
-        self.current_tab = 0  # 0: Connection, 1: Parameters, 2: Settings
         Theme.apply(imgui)
 
-    def draw_menu(self, session_state: str, callbacks: Dict[str, Callable]) -> bool:
+    def draw_menu(self, session_state: str, callbacks: Dict[str, Callable], params: Dict, on_param_change: Optional[Callable] = None) -> bool:
         """Draw tabbed menu
 
         Args:
             session_state: Session state string
             callbacks: Callback dict {"connect": fn, "disconnect": fn, "quit": fn}
+            params: Parameters dict
+            on_param_change: Callback for parameter changes
 
         Returns:
             running status
         """
         imgui.set_next_window_position(20, 20, imgui.ALWAYS)
-        imgui.set_next_window_size(400, 350, imgui.ALWAYS)
+        imgui.set_next_window_size(450, 400, imgui.ALWAYS)
 
         expanded, opened = imgui.begin("Menu", True)
         running = True
@@ -40,12 +41,22 @@ class ImGuiUI:
 
                 # Parameters tab
                 if imgui.begin_tab_item("Parameters")[0]:
-                    self._draw_parameters_tab()
+                    self._draw_parameters_tab(params, on_param_change)
                     imgui.end_tab_item()
 
-                # Settings tab
-                if imgui.begin_tab_item("Settings")[0]:
-                    self._draw_settings_tab()
+                # Video tab
+                if imgui.begin_tab_item("Video")[0]:
+                    self._draw_video_tab(params, on_param_change)
+                    imgui.end_tab_item()
+
+                # Recording tab
+                if imgui.begin_tab_item("Recording")[0]:
+                    self._draw_recording_tab(params, on_param_change)
+                    imgui.end_tab_item()
+
+                # Debug tab
+                if imgui.begin_tab_item("Debug")[0]:
+                    self._draw_debug_tab(params, on_param_change)
                     imgui.end_tab_item()
 
                 imgui.end_tab_bar()
@@ -82,32 +93,89 @@ class ImGuiUI:
         imgui.separator()
 
         # Quit button
-        if imgui.button("Quit", width=100):
+        if imgui.button("Quit", width=150):
             if "quit" in callbacks:
                 callbacks["quit"]()
 
-    def _draw_parameters_tab(self) -> None:
+    def _draw_parameters_tab(self, params: Dict, on_change: Optional[Callable]) -> None:
         """Draw parameters tab"""
-        from logic.param_manager import ParamManager
+        imgui.text("Input Settings")
+        imgui.separator()
 
-        # Get param manager from app context (will be passed via callback)
-        # For now, show placeholder
-        imgui.text("Mouse Sensitivity")
-        imgui.slider_float("##sensitivity", 1.0, 0.1, 5.0)
+        # Mouse sensitivity
+        sensitivity = params.get("mouse_sensitivity", 1.0)
+        changed, new_value = imgui.slider_float("Mouse Sensitivity", sensitivity, 0.1, 5.0)
+        if changed and on_change:
+            on_change("mouse_sensitivity", new_value)
 
-        imgui.text("FOV")
-        imgui.slider_float("##fov", 90.0, 30.0, 120.0)
+        # FOV
+        fov = params.get("fov", 90.0)
+        changed, new_value = imgui.slider_float("FOV", fov, 30.0, 120.0)
+        if changed and on_change:
+            on_change("fov", new_value)
 
-    def _draw_settings_tab(self) -> None:
-        """Draw settings tab"""
-        imgui.text("Video Quality")
-        imgui.combo("##quality", 0, ["Low", "Medium", "High", "Ultra"])
+        # Invert pitch
+        invert_pitch = params.get("invert_pitch", False)
+        changed, new_value = imgui.checkbox("Invert Pitch", invert_pitch)
+        if changed and on_change:
+            on_change("invert_pitch", new_value)
 
-        imgui.text("Recording")
-        imgui.checkbox("Enable Recording##rec", False)
+    def _draw_video_tab(self, params: Dict, on_change: Optional[Callable]) -> None:
+        """Draw video tab"""
+        imgui.text("Video Settings")
+        imgui.separator()
 
-        imgui.text("Debug")
-        imgui.checkbox("Show Performance Graph##perf", False)
+        # Video quality
+        quality = params.get("video_quality", 1)
+        changed, new_value = imgui.combo("Quality", quality, ["Low", "Medium", "High", "Ultra"])
+        if changed and on_change:
+            on_change("video_quality", new_value)
+
+        # Resolution
+        resolution = params.get("resolution", 1)
+        changed, new_value = imgui.combo("Resolution", resolution, ["720p", "1080p", "1440p"])
+        if changed and on_change:
+            on_change("resolution", new_value)
+
+        # Window mode
+        window_mode = params.get("window_mode", 0)
+        changed, new_value = imgui.combo("Window Mode", window_mode, ["Windowed", "Fullscreen"])
+        if changed and on_change:
+            on_change("window_mode", new_value)
+
+    def _draw_recording_tab(self, params: Dict, on_change: Optional[Callable]) -> None:
+        """Draw recording tab"""
+        imgui.text("Recording Settings")
+        imgui.separator()
+
+        # Recording enabled
+        recording_enabled = params.get("recording_enabled", False)
+        changed, new_value = imgui.checkbox("Enable Recording", recording_enabled)
+        if changed and on_change:
+            on_change("recording_enabled", new_value)
+
+        # Recording bitrate
+        bitrate = params.get("recording_bitrate", 5000)
+        changed, new_value = imgui.slider_int("Bitrate (kbps)", bitrate, 1000, 20000)
+        if changed and on_change:
+            on_change("recording_bitrate", new_value)
+
+    def _draw_debug_tab(self, params: Dict, on_change: Optional[Callable]) -> None:
+        """Draw debug tab"""
+        imgui.text("Debug Settings")
+        imgui.separator()
+
+        # Performance graph
+        show_perf = params.get("show_performance_graph", False)
+        changed, new_value = imgui.checkbox("Show Performance Graph", show_perf)
+        if changed and on_change:
+            on_change("show_performance_graph", new_value)
+
+        # Debug info
+        show_debug = params.get("show_debug_info", False)
+        changed, new_value = imgui.checkbox("Show Debug Info", show_debug)
+        if changed and on_change:
+            on_change("show_debug_info", new_value)
 
     def draw_status_bar(self, status: Dict) -> None:
         """Draw status bar
