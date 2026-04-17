@@ -59,7 +59,8 @@ class ImGuiUI:
         imgui.set_next_window_position(center_x, center_y, imgui.ALWAYS)
         imgui.set_next_window_size(menu_width, menu_height, imgui.ALWAYS)
 
-        expanded, opened = imgui.begin("REMOTE CONTROL", True, imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
+        # No close button (False), no move/resize
+        expanded, opened = imgui.begin("REMOTE CONTROL", False, imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE)
 
         if expanded:
             # Tab bar with better styling
@@ -98,11 +99,6 @@ class ImGuiUI:
 
         imgui.end()
         imgui.pop_style_var()
-
-        # Close button (X) only hides menu
-        if not opened:
-            self.show_menu = False
-            self.menu_open_time = time.time()
 
     def _draw_connection_tab(self, session_state: str, callbacks: Dict[str, Callable]) -> None:
         """Draw connection tab"""

@@ -86,7 +86,3 @@ class Theme:
         style.item_inner_spacing = (8, 8)
         style.window_padding = (16, 16)
         style.indent_spacing = 20.0
-
-        # Border size
-        style.border_size = 1.0
-        style.frame_border_size = 1.0

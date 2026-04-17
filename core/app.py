@@ -83,8 +83,9 @@ class Application:
         """Toggle menu"""
         self.imgui_ui.show_menu = not self.imgui_ui.show_menu
         self.imgui_ui.menu_open_time = time.time()
-        # Show mouse cursor when menu opens, hide when closes
+        # Always ensure cursor visibility matches menu state
         pygame.mouse.set_visible(self.imgui_ui.show_menu)
+        print(f"[App] Menu toggled: {self.imgui_ui.show_menu}, Cursor visible: {self.imgui_ui.show_menu}")
 
     def run(self):
         """Run application"""
