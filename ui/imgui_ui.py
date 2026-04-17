@@ -65,7 +65,12 @@ class ImGuiUI:
                 running = False
 
         imgui.end()
-        return running and opened
+
+        # Close button (X) only hides menu, doesn't close program
+        if not opened:
+            self.show_menu = False
+
+        return running
 
     def draw_status_bar(self, status: Dict) -> None:
         """Draw status bar
