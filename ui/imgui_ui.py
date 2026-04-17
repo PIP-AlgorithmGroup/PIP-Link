@@ -104,13 +104,21 @@ class ImGuiUI:
 
         # Mouse sensitivity
         sensitivity = params.get("mouse_sensitivity", 1.0)
-        changed, new_value = imgui.input_float("Mouse Sensitivity##sens", sensitivity, step=0.1, step_fast=1.0)
+        changed, new_value = imgui.slider_float("Mouse Sensitivity", sensitivity, 0.1, 5.0)
+        if changed and on_change:
+            on_change("mouse_sensitivity", new_value)
+        imgui.same_line()
+        changed, new_value = imgui.input_float("##sens_input", sensitivity, step=0.1, step_fast=1.0)
         if changed and on_change:
             on_change("mouse_sensitivity", max(0.1, min(5.0, new_value)))
 
         # FOV
         fov = params.get("fov", 90.0)
-        changed, new_value = imgui.input_float("FOV##fov", fov, step=1.0, step_fast=10.0)
+        changed, new_value = imgui.slider_float("FOV", fov, 30.0, 120.0)
+        if changed and on_change:
+            on_change("fov", new_value)
+        imgui.same_line()
+        changed, new_value = imgui.input_float("##fov_input", fov, step=1.0, step_fast=10.0)
         if changed and on_change:
             on_change("fov", max(30.0, min(120.0, new_value)))
 
@@ -156,7 +164,11 @@ class ImGuiUI:
 
         # Recording bitrate
         bitrate = params.get("recording_bitrate", 5000)
-        changed, new_value = imgui.input_int("Bitrate (kbps)##bitrate", bitrate, step=500, step_fast=2000)
+        changed, new_value = imgui.slider_int("Bitrate (kbps)", bitrate, 1000, 20000)
+        if changed and on_change:
+            on_change("recording_bitrate", new_value)
+        imgui.same_line()
+        changed, new_value = imgui.input_int("##bitrate_input", bitrate, step=500, step_fast=2000)
         if changed and on_change:
             on_change("recording_bitrate", max(1000, min(20000, new_value)))
 
