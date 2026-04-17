@@ -2,16 +2,20 @@
 
 class Config:
     # UI config
-    RENDER_WIDTH = 720
-    RENDER_HEIGHT = 540
+    RENDER_WIDTH = 1600
+    RENDER_HEIGHT = 900
     TARGET_FPS = 30
     FULLSCREEN = False
 
-    # 网络配置
+    # Font config
+    FONT_SIZE = 20
+    FONT_PATH = "C:\\Windows\\Fonts\\segoeui.ttf"  # Segoe UI looks better than msyh
+
+    # Network config
     MDNS_SERVICE_NAME = "_pip_link._udp"
     MDNS_TIMEOUT = 5.0
 
-    # UDP配置
+    # UDP config
     UDP_BUFFER_SIZE = 65536
     VIDEO_PORT_OFFSET = 1000
     CONTROL_PORT_OFFSET = 2000

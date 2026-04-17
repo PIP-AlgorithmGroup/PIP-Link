@@ -42,11 +42,15 @@ class Application:
 
         # Load font with larger size
         try:
-            io.fonts.add_font_from_file_ttf("C:\\Windows\\Fonts\\msyh.ttc", 18, io.fonts.get_glyph_ranges_chinese_simplified())
+            io.fonts.add_font_from_file_ttf(Config.FONT_PATH, Config.FONT_SIZE)
         except:
-            pass  # Use default font if loading fails
+            try:
+                # Fallback to Chinese font if Segoe UI not available
+                io.fonts.add_font_from_file_ttf("C:\\Windows\\Fonts\\msyh.ttc", Config.FONT_SIZE, io.fonts.get_glyph_ranges_chinese_simplified())
+            except:
+                pass  # Use default font if loading fails
 
-        # 组件
+        # Components
         self.session = SessionManager()
         self.video_renderer = VideoRenderer(Config.RENDER_WIDTH, Config.RENDER_HEIGHT)
         self.video_renderer.init_texture()
@@ -56,11 +60,14 @@ class Application:
         self.param_manager = ParamManager()
         self.status_monitor = StatusMonitor()
 
-        # 状态
+        # State
         self.running = True
         self.fps_clock = pygame.time.Clock()
 
-        # 设置回调
+        # Hide cursor initially (game mode)
+        pygame.mouse.set_visible(False)
+
+        # Set callbacks
         self.session.on_state_changed = self._on_session_state_changed
         self.input_handler.on_toggle_menu = self._on_toggle_menu
 

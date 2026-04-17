@@ -22,8 +22,8 @@ class ImGuiUI:
             params: Parameters dict
             on_param_change: Callback for parameter changes
         """
-        imgui.set_next_window_position(20, 20, imgui.ALWAYS)
-        imgui.set_next_window_size(450, 400, imgui.ALWAYS)
+        imgui.set_next_window_position(40, 40, imgui.ALWAYS)
+        imgui.set_next_window_size(600, 500, imgui.ALWAYS)
 
         expanded, opened = imgui.begin("Menu", True)
 
@@ -178,8 +178,8 @@ class ImGuiUI:
             status: Status dict {"fps", "latency_ms", "packet_loss_rate", "frames_received", "session_state"}
         """
         # Bottom-right position
-        imgui.set_next_window_position(Config.RENDER_WIDTH - 320, Config.RENDER_HEIGHT - 150, imgui.ALWAYS)
-        imgui.set_next_window_size(300, 130, imgui.ALWAYS)
+        imgui.set_next_window_position(Config.RENDER_WIDTH - 380, Config.RENDER_HEIGHT - 180, imgui.ALWAYS)
+        imgui.set_next_window_size(360, 160, imgui.ALWAYS)
 
         expanded, opened = imgui.begin("Status", True)
         if expanded:
