@@ -104,10 +104,13 @@ class Application:
             self.status_monitor.update(stats)
             status = self.status_monitor.get_status()
 
-            # 5. Render video
+            # 5. Clear framebuffer once at start
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
+
+            # 6. Render video
             self.video_renderer.render()
 
-            # 6. ImGui UI
+            # 7. ImGui UI
             imgui.new_frame()
             if self.imgui_ui.show_menu:
                 self.running = self.imgui_ui.draw_menu(
@@ -118,18 +121,18 @@ class Application:
                         "quit": lambda: setattr(self, "running", False),
                     }
                 )
+                # Only show params panel when menu is open
+                self.imgui_ui.draw_params_panel(
+                    self.param_manager.get_all_params(),
+                    on_change=self.param_manager.set_param
+                )
             else:
                 self.imgui_ui.draw_status_bar(status)
-
-            self.imgui_ui.draw_params_panel(
-                self.param_manager.get_all_params(),
-                on_change=self.param_manager.set_param
-            )
 
             imgui.render()
             self.imgui_renderer.render(imgui.get_draw_data())
 
-            # 7. Swap buffers
+            # 8. Swap buffers
             pygame.display.flip()
 
             # 8. Frame rate control

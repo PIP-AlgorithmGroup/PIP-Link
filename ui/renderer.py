@@ -48,7 +48,6 @@ class VideoRenderer:
         if self.frame_data is None:
             return
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
         glLoadIdentity()
 
         # Bind texture
@@ -65,6 +64,9 @@ class VideoRenderer:
         glTexCoord2f(0, 1)
         glVertex3f(-1, 1, 0)
         glEnd()
+
+        # Unbind texture
+        glBindTexture(GL_TEXTURE_2D, 0)
 
     def cleanup(self):
         """Clean up resources"""

@@ -1,9 +1,9 @@
-"""配置文件"""
+"""Configuration"""
 
 class Config:
-    # UI配置
-    RENDER_WIDTH = 1920
-    RENDER_HEIGHT = 1080
+    # UI config
+    RENDER_WIDTH = 720
+    RENDER_HEIGHT = 540
     TARGET_FPS = 30
     FULLSCREEN = False
 
