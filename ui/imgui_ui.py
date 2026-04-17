@@ -133,7 +133,7 @@ class ImGuiUI:
 
         # Resolution
         resolution = params.get("resolution", 1)
-        changed, new_value = imgui.combo("Resolution", resolution, ["720p", "1080p", "1440p"])
+        changed, new_value = imgui.combo("Resolution", resolution, ["1280x720", "1920x1080", "2560x1440", "3840x2160"])
         if changed and on_change:
             on_change("resolution", new_value)
 
