@@ -200,7 +200,7 @@ class ImGuiUI:
         self._update_menu_animation()
         imgui.push_style_var(imgui.STYLE_ALPHA, self.menu_alpha)
 
-        menu_width = 700
+        menu_width = 800
         menu_height = 650
         center_x = (Config.RENDER_WIDTH - menu_width) / 2
         center_y = (Config.RENDER_HEIGHT - menu_height) / 2
@@ -227,6 +227,8 @@ class ImGuiUI:
                     params, on_param_change, stats or {}, live_status or {}))
                 self._tab("RECORDING", lambda: self._draw_recording_tab(
                     params, on_param_change))
+                self._tab("DIAGNOSTICS", lambda: self._draw_diagnostics_tab(
+                    stats or {}, live_status or {}))
                 self._tab("DEBUG", lambda: self._draw_debug_tab(
                     params, on_param_change, stats or {}, live_status or {}))
                 imgui.end_tab_bar()
@@ -582,6 +584,88 @@ class ImGuiUI:
         self._draw_kv_row("Bitrate", f"{params.get('recording_bitrate', 5000)} kbps")
         fmt_names = ["MP4", "MKV", "AVI"]
         self._draw_kv_row("Format", fmt_names[params.get("recording_format", 0)])
+
+    # -------------------------------------------------------------------------
+    # DIAGNOSTICS tab
+    # -------------------------------------------------------------------------
+
+    def _draw_diagnostics_tab(self, stats: Dict, live_status: Dict) -> None:
+        self._draw_section_title("NETWORK DIAGNOSTICS")
+
+        pushed = self._push_font(self.font_body)
+
+        # --- Bandwidth section ---
+        self._draw_subsection("BANDWIDTH")
+        self._pop_font(pushed)
+
+        uplink_kbps = stats.get("uplink_bandwidth_kbps", 0.0)
+        downlink_kbps = stats.get("downlink_bandwidth_kbps", self._bandwidth_kbps)
+        self._draw_kv_row("Uplink", f"{uplink_kbps:.1f} kbps")
+        self._draw_kv_row("Downlink", f"{downlink_kbps:.1f} kbps")
+
+        imgui.spacing()
+
+        # --- Packet statistics ---
+        pushed = self._push_font(self.font_body)
+        self._draw_subsection("PACKET STATISTICS")
+        self._pop_font(pushed)
+
+        packets_sent = stats.get("packets_sent", 0)
+        packets_received = stats.get("packets_received", 0)
+        packets_lost = stats.get("packets_lost", 0)
+        packets_retransmitted = stats.get("packets_retransmitted", 0)
+
+        self._draw_kv_row("Packets Sent", f"{packets_sent}")
+        self._draw_kv_row("Packets Received", f"{packets_received}")
+        self._draw_kv_row("Packets Lost", f"{packets_lost}")
+        self._draw_kv_row("Retransmitted", f"{packets_retransmitted}")
+
+        imgui.spacing()
+
+        # --- RTT statistics ---
+        pushed = self._push_font(self.font_body)
+        self._draw_subsection("LATENCY STATISTICS")
+        self._pop_font(pushed)
+
+        latency_min = stats.get("latency_min_ms", 0.0)
+        latency_avg = live_status.get("latency_ms", 0.0)
+        latency_max = stats.get("latency_max_ms", 0.0)
+
+        self._draw_kv_row("Min RTT", f"{latency_min:.1f} ms")
+        self._draw_kv_row("Avg RTT", f"{latency_avg:.1f} ms", accent=True)
+        self._draw_kv_row("Max RTT", f"{latency_max:.1f} ms")
+
+        imgui.spacing()
+
+        # --- Codec statistics ---
+        pushed = self._push_font(self.font_body)
+        self._draw_subsection("CODEC STATISTICS")
+        self._pop_font(pushed)
+
+        encode_time_ms = stats.get("encode_time_ms", 0.0)
+        decode_time_ms = stats.get("decode_time_ms", 0.0)
+        buffer_frames = stats.get("buffer_frames", 0)
+        keyframe_interval = stats.get("keyframe_interval", 0)
+
+        self._draw_kv_row("Encode Time", f"{encode_time_ms:.1f} ms")
+        self._draw_kv_row("Decode Time", f"{decode_time_ms:.1f} ms")
+        self._draw_kv_row("Buffer Frames", f"{buffer_frames}")
+        self._draw_kv_row("Keyframe Interval", f"{keyframe_interval}")
+
+        imgui.spacing()
+
+        # --- Error statistics ---
+        pushed = self._push_font(self.font_body)
+        self._draw_subsection("ERROR STATISTICS")
+        self._pop_font(pushed)
+
+        crc_errors = stats.get("crc_errors", 0)
+        timeout_errors = stats.get("timeout_errors", 0)
+        decode_errors = stats.get("decode_errors", 0)
+
+        self._draw_kv_row("CRC Errors", f"{crc_errors}")
+        self._draw_kv_row("Timeout Errors", f"{timeout_errors}")
+        self._draw_kv_row("Decode Errors", f"{decode_errors}")
 
     # -------------------------------------------------------------------------
     # DEBUG tab
