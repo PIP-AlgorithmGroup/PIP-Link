@@ -19,6 +19,7 @@ from ui.console import GameConsole
 from logic.input_mapper import InputMapper
 from logic.param_manager import ParamManager
 from logic.status_monitor import StatusMonitor
+from logic.config_manager import ConfigManager
 
 
 class Application:
@@ -66,6 +67,7 @@ class Application:
         self.input_mapper = InputMapper()
         self.param_manager = ParamManager()
         self.status_monitor = StatusMonitor()
+        self.config_manager = ConfigManager("config.json")
 
         # Developer console (overlay)
         self.console = GameConsole(font_mono=font_mono, font_body=font_body)
@@ -93,6 +95,12 @@ class Application:
         self.input_handler.on_toggle_console = self._on_toggle_console
         self.input_handler.on_key_capture = self.imgui_ui.on_key_captured
 
+        # Load persisted key bindings
+        saved_bindings = self.config_manager.get_key_bindings()
+        if saved_bindings:
+            self.imgui_ui._key_bindings.update(saved_bindings)
+            print("[App] Loaded key bindings from config")
+
     def _on_session_state_changed(self, state):
         """Session state changed callback"""
         print(f"[App] Session state: {state.value}")
@@ -111,6 +119,16 @@ class Application:
         """Toggle menu"""
         self.imgui_ui.show_menu = not self.imgui_ui.show_menu
         print(f"[App] Menu toggled: {self.imgui_ui.show_menu}")
+
+    def _on_param_change(self, key: str, value):
+        """Handle parameter change and persist to config"""
+        self.param_manager.set_param(key, value)
+        # Persist key bindings and other important settings
+        if key == "key_bindings":
+            self.config_manager.config["key_bindings"] = value
+            self.config_manager.save()
+        elif key in ["mouse_sensitivity", "fov", "invert_pitch", "video_quality", "recording_enabled"]:
+            self.config_manager.save()
 
     def run(self):
         """Run application"""
@@ -172,7 +190,7 @@ class Application:
                         "start_key_capture": self.input_handler.start_key_capture,
                     },
                     params=self.param_manager.get_all_params(),
-                    on_param_change=self.param_manager.set_param,
+                    on_param_change=self._on_param_change,
                     stats=stats,
                     live_status=status,
                 )
