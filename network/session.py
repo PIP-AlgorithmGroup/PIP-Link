@@ -52,19 +52,29 @@ class SessionManager:
         self._reconnect_interval = 5.0
 
     def start_discovery(self, service_name: str):
-        """启动 mDNS 发现"""
+        """启动 mDNS 发现（后台线程）"""
         with self._lock:
             if self.state != SessionState.IDLE:
                 return
 
             self._set_state(SessionState.DISCOVERING)
 
+            # 在后台线程中执行服务发现
+            discovery_thread = threading.Thread(
+                target=self._discovery_thread,
+                args=(service_name,),
+                daemon=True
+            )
+            discovery_thread.start()
+
+    def _discovery_thread(self, service_name: str):
+        """服务发现线程"""
+        try:
             self.service_discovery = ServiceDiscovery()
             self.service_discovery.on_service_found = self._on_service_found
             self.service_discovery.on_service_lost = self._on_service_lost
             self.service_discovery.start()
 
-            # 等待服务发现
             logger.info(f"Waiting for service: {service_name}")
             service_info = self.service_discovery.wait_for_service(service_name, timeout=10.0)
 
@@ -72,9 +82,17 @@ class SessionManager:
                 self._on_service_found(service_name, service_info)
             else:
                 logger.error(f"Service discovery timeout: {service_name}")
-                self._set_state(SessionState.IDLE)
+                with self._lock:
+                    self._set_state(SessionState.IDLE)
                 if self.on_error:
                     self.on_error("Service discovery timeout")
+
+        except Exception as e:
+            logger.error(f"Discovery thread error: {e}")
+            with self._lock:
+                self._set_state(SessionState.IDLE)
+            if self.on_error:
+                self.on_error(str(e))
 
     def _on_service_found(self, service_name: str, service_info: dict):
         """服务发现回调"""
