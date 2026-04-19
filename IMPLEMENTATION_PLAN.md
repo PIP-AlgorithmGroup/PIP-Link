@@ -516,8 +516,8 @@ netstat -an | findstr UDP
 
 | 阶段 | 功能 | 状态 | 完成度 |
 |------|------|------|--------|
-| 1 | Protocol | In Progress | 100% ✓ |
-| 1 | LatencyCalculator | Not Started | 0% |
+| 1 | Protocol | Completed | 100% ✓ |
+| 1 | LatencyCalculator | Completed | 100% ✓ |
 | 1 | UDP 基础 | Not Started | 0% |
 | 2 | ServiceDiscovery | Not Started | 0% |
 | 2 | ControlSender | Not Started | 0% |
