@@ -102,6 +102,8 @@ class SessionManager:
             port = service_info.get('port', 0)
             properties = service_info.get('properties', {})
 
+            logger.debug(f"Service info: addresses={addresses}, port={port}, properties={properties}")
+
             if not addresses or not port:
                 logger.error("Invalid service info")
                 return
@@ -117,7 +119,7 @@ class SessionManager:
             self.control_port = port
             self.video_port = port + 1000  # 视频端口偏移
 
-            logger.info(f"Service found: {self.server_ip}:{self.control_port}")
+            logger.info(f"Service found: {self.server_ip}:{self.control_port} (video: {self.video_port})")
             self._connect_to_server()
 
         except Exception as e:
