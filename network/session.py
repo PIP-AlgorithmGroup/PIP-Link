@@ -106,7 +106,14 @@ class SessionManager:
                 logger.error("Invalid service info")
                 return
 
-            self.server_ip = addresses[0]
+            # 处理地址（可能是字节或字符串）
+            addr = addresses[0]
+            if isinstance(addr, bytes):
+                import socket
+                self.server_ip = socket.inet_ntoa(addr)
+            else:
+                self.server_ip = str(addr)
+
             self.control_port = port
             self.video_port = port + 1000  # 视频端口偏移
 
