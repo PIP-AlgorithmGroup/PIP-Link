@@ -1,0 +1,17 @@
+{
+  "key_bindings": {
+    "forward": "W",
+    "backward": "S",
+    "left": "A",
+    "right": "D",
+    "sprint": "Shift",
+    "special_1": "E",
+    "special_2": "F"
+  },
+  "last_service_name": "_pip_link._udp",
+  "last_server_ip": "",
+  "last_server_port": 0,
+  "window_width": 1600,
+  "window_height": 900,
+  "fullscreen": false
+}
