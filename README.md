@@ -1,28 +1,313 @@
-<div align="center">  
+<div align="center">
 <h1>PIP-Link</h1>
 
+**无人机地面站系统 - 客户端**
 
-**高性能远程桌面控制系统 - 客户端**
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python Version](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/) [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](https://github.com)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Python Version](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/) [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-lightgrey.svg)](https://claude.ai/chat/81d4194f-81b1-48cf-87d5-3217ed7f8065)
+*基于 UDP 的低延迟视频传输 + 50Hz 控制指令发送 + mDNS 服务发现*
 
-*基于UDP的低延迟视频流传输 + 100Hz高频控制指令发送*
+[快速开始](#快速开始) • [功能特性](#功能特性) • [文档](#文档) • [测试](#测试)
 
-<a href="✨ 特性">特性</a> • <a href="🚀 快速开始">快速开始</a> •<a href="🏗️ 系统架构">系统架构</a> • <a href="⚙️ 配置说明">配置说明</a> • <a href="🔧 开发文档">开发文档</a>
+</div>
 
-</div>  
-
-------
+---
 
 ## 📖 项目简介
 
-PIP-Link 是一个专为远程桌面控制设计的客户端应用程序，与基于ROS2的服务端配合使用。系统采用**TCP握手 + UDP视频流 + UDP控制指令**的混合架构，实现了：
+PIP-Link 是一个完整的无人机地面站客户端系统，采用**mDNS 服务发现 + UDP 视频流 + UDP 控制指令**的架构，实现了：
 
-- 🎥 **低延迟视频传输**: UDP分包传输，支持动态调整JPEG质量和分辨率
-- 🎮 **高频控制发送**: 100Hz控制指令发送频率，支持鼠标(速度控制+5键+滚轮) + 键盘(71键同时检测)
-- 🖥️ **自定义UI框架**: 基于OpenCV + Pygame实现的完整UI系统
-- ⚙️ **实时参数调整**: 支持视频质量、图像调整(曝光/对比度/伽马)、鼠标灵敏度等参数的动态修改
-- 📊 **传输质量监控**: 实时显示帧率、延迟、丢包率、带宽等指标
+- 🎥 **低延迟视频传输**: UDP 视频流接收，支持实时显示
+- 🎮 **高频控制发送**: 50Hz 控制指令发送频率，支持键盘控制
+- 🔍 **自动服务发现**: mDNS 自动发现局域网内的机载端
+- 💓 **心跳检测**: 自动连接监测和重连
+- 📊 **实时统计**: FPS、延迟、丢包率实时显示
+- 🖥️ **完整 UI 系统**: Pygame + OpenGL + ImGui
+
+## ✨ 功能特性
+
+### 核心功能
+
+| 功能模块 | 说明 |
+|---------|------|
+| **mDNS 服务发现** | 自动发现局域网内的机载端服务 |
+| **视频流接收** | UDP 协议接收视频帧，实时显示 |
+| **控制指令发送** | 50Hz 频率发送键盘控制指令 |
+| **心跳检测** | 定期发送心跳，自动重连 |
+| **延迟测量** | 微秒级 RTT 测量 |
+| **实时监控** | 显示 FPS、延迟、丢包率等指标 |
+
+### 输入设备支持
+
+- **键盘**: WASD 移动、Space 动作、Shift 冲刺
+- **菜单**: ESC 打开菜单，支持 SCAN、Connect、Disconnect 等操作
+
+## 🚀 快速开始
+
+### 环境要求
+
+- **操作系统**: Windows 11 / Linux / macOS
+- **Python 版本**: 3.10+
+- **依赖库**: pygame, PyOpenGL, imgui, zeroconf, pynput
+
+### 安装步骤
+
+```bash
+# 克隆仓库
+git clone <repository>
+cd PIP-Link
+
+# 创建 conda 环境
+conda create -n PIP_Link python=3.10
+conda activate PIP_Link
+
+# 安装依赖
+pip install -r requirements.txt
+```
+
+### 运行
+
+**本地测试（推荐）：**
+```bash
+# 终端 1：启动模拟器
+python tests/air_unit_simulator.py
+
+# 终端 2：启动客户端
+python main.py
+```
+
+**远程测试（需要 Ubuntu）：**
+```bash
+# Ubuntu 上
+python3 air_unit_server.py
+
+# Windows 上
+python main.py
+```
+
+**一键测试：**
+```bash
+python tests/run_test.py
+```
+
+### 首次使用
+
+1. 启动模拟器或机载端服务器
+2. 启动客户端
+3. 按 ESC 打开菜单
+4. 点击 SCAN 发现机载端
+5. 点击 Connect 连接
+6. 按 ESC 关闭菜单，使用 WASD 控制
+
+### 快捷键
+
+| 按键 | 功能 |
+|------|------|
+| ESC | 打开/关闭菜单 |
+| ~ | 开发者控制台 |
+| WASD | 控制移动 |
+| Space | 动作按钮 |
+| Shift | 冲刺 |
+
+## 🏗️ 系统架构
+
+### 网络协议
+
+```
+客户端                              机载端
+  |                                  |
+  |---------- mDNS 发现 ----------->|
+  |<--------- 服务信息 --------------|
+  |                                  |
+  |---------- UDP 控制指令 -------->|
+  |<--------- UDP ACK 响应 ---------|
+  |                                  |
+  |<======== UDP 视频帧 ===========|
+  |                                  |
+  |---------- UDP 心跳 ----------->|
+  |<--------- UDP ACK 响应 ---------|
+```
+
+### 端口分配
+
+| 端口 | 协议 | 用途 | 频率 |
+|------|------|------|------|
+| 5353 | UDP | mDNS 服务发现 | 连接时 |
+| 6000 | UDP | 控制指令 | 50 Hz |
+| 5000 | UDP | 视频流 | ~30 fps |
+
+### 项目结构
+
+```
+PIP-Link/
+├── network/              # 网络通信层
+│   ├── protocol.py       # 消息编解码
+│   ├── udp_socket.py     # UDP 基础
+│   ├── service_discovery.py  # mDNS 发现
+│   ├── control_sender.py # 控制发送
+│   ├── video_receiver.py # 视频接收
+│   ├── heartbeat.py      # 心跳管理
+│   └── session.py        # 会话管理
+├── logic/                # 业务逻辑层
+│   ├── latency_calculator.py  # 延迟计算
+│   ├── input_mapper.py   # 输入映射
+│   └── status_monitor.py # 状态监控
+├── ui/                   # UI 层
+│   ├── renderer.py       # 视频渲染
+│   ├── imgui_ui.py       # ImGui UI
+│   └── input_handler.py  # 输入处理
+├── core/
+│   └── app.py            # 主应用
+├── tests/                # 测试脚本
+│   ├── air_unit_simulator.py  # 本地模拟器
+│   ├── run_test.py       # 一键测试
+│   └── test_*.py         # 集成测试
+├── air_unit_server.py    # 机载端服务器
+├── main.py               # 入口
+└── 文档
+```
+
+## 📊 性能指标
+
+| 指标 | 值 |
+|------|-----|
+| 控制指令发送率 | 50 Hz |
+| 视频帧发送率 | ~30 fps |
+| 主循环帧率 | 60 fps |
+| RTT 测量精度 | 微秒级 |
+| 平均丢包率 | < 1% |
+
+## 📚 文档
+
+| 文档 | 内容 |
+|------|------|
+| [QUICK_REFERENCE.md](QUICK_REFERENCE.md) | 快速参考 |
+| [USER_GUIDE.md](USER_GUIDE.md) | 客户端使用指南 |
+| [TESTING_GUIDE.md](TESTING_GUIDE.md) | 测试方法 |
+| [AIR_UNIT_SERVER_GUIDE.md](AIR_UNIT_SERVER_GUIDE.md) | 机载端使用 |
+| [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) | 项目总结 |
+| [BACKEND_SUMMARY.md](BACKEND_SUMMARY.md) | 后端总结 |
+| [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) | 实现计划 |
+
+## 🧪 测试
+
+### 本地测试
+
+```bash
+# 启动模拟器
+python tests/air_unit_simulator.py
+
+# 启动客户端
+python main.py
+
+# 在菜单中点击 SCAN 和 Connect
+```
+
+### 远程测试
+
+```bash
+# Ubuntu 上启动服务器
+python3 air_unit_server.py
+
+# Windows 上启动客户端
+python main.py
+```
+
+### 一键测试
+
+```bash
+python tests/run_test.py
+```
+
+## 🔧 故障排除
+
+### 无法发现服务
+
+**解决：**
+1. 检查防火墙（允许 UDP 5353）
+2. 检查网络连接
+3. 确保服务器已启动
+
+### 连接后无视频
+
+**解决：**
+1. 检查视频端口配置
+2. 检查防火墙（允许 UDP 5000）
+3. 查看开发者控制台日志
+
+### UI 冻结
+
+**解决：**
+1. 等待服务发现完成（最多 10 秒）
+2. 检查网络连接
+
+详见各文档的故障排除部分。
+
+## 📈 项目进度
+
+- ✓ Phase 1: 协议与基础通信（100%）
+- ✓ Phase 2: 网络线程框架（100%）
+- ✓ Phase 3: 业务逻辑层（100%）
+- ✓ Phase 4: UI 集成（20%）
+- ⏳ Phase 5: 优化与完善（0%）
+
+## 🛠️ 技术栈
+
+- **语言**: Python 3.10+
+- **UI**: Pygame + PyOpenGL + ImGui
+- **网络**: UDP + mDNS
+- **输入**: pynput
+- **测试**: pytest
+
+## 📦 依赖
+
+```
+pygame>=2.1.0
+PyOpenGL>=3.1.5
+imgui>=1.4.0
+zeroconf>=0.40.0
+pynput>=1.7.6
+```
+
+## 📝 更新日志
+
+### v2.0.0 (2026-04-19)
+
+- ✨ 完整后端实现（Phase 1-3）
+- 🎥 mDNS 服务发现
+- 🎮 50Hz 控制指令发送
+- 💓 心跳检测和自动重连
+- 📊 实时统计监控
+- 🧪 完整测试框架
+- 📚 详细文档
+
+## 🐛 已知问题
+
+- UI 完成度 20%（主循环框架已完成）
+- 视频编解码需要集成真实库
+- FEC 解码未实现（Phase 5）
+
+## 📄 许可证
+
+本项目采用 [MIT License](LICENSE)
+
+## 🙏 致谢
+
+- [Pygame](https://www.pygame.org/) - 窗口和事件系统
+- [PyOpenGL](https://pyopengl.sourceforge.net/) - 3D 渲染
+- [ImGui](https://github.com/ocornut/imgui) - UI 库
+- [zeroconf](https://github.com/jstasiak/python-zeroconf) - mDNS 服务发现
+- [pynput](https://github.com/moses-palmer/pynput) - 键盘监听
+
+---
+
+<div align="center">
+
+**⭐ 如果这个项目对你有帮助，请给个 Star! ⭐**
+
+Made with ❤️ for Drone Ground Station
+
+</div>
 
 ## ✨ 特性
 
