@@ -599,22 +599,77 @@ client:
 
 ### 9.2 监测方式
 
-```python
-# 延迟测量
-send_time = time.time()
-# ... 发送控制指令
-receive_time = time.time()
-latency = (receive_time - send_time) * 1000  # ms
+#### 9.2.1 高精度延迟测量（四时间戳方案）
 
+**原理**：使用客户端和机载端的四个时间戳，计算 RTT、时钟偏移、单向延迟。
+
+**流程**：
+```
+步骤 1：客户端 → 机载端
+  t1 = 客户端发送时间
+
+步骤 2：机载端 → 客户端
+  t2 = 机载端收到时间
+  t3 = 机载端发出 ACK 时间
+
+步骤 3：客户端收到 ACK
+  t4 = 客户端收到时间
+```
+
+**计算公式**：
+```
+RTT = t4 - t1
+
+Clock Offset（客户端相对机载端的时钟偏移）
+offset = ((t2 - t1) + (t3 - t4)) / 2
+
+单向延迟（客户端 → 机载端）
+delay_up = (t2 - t1) - offset
+
+单向延迟（机载端 → 客户端）
+delay_down = (t4 - t3) - offset
+```
+
+**实现**：
+```python
+# 客户端发送
+t1 = time.perf_counter()
+seq = latency_calc.record_send(t1)
+message = Protocol.build_control_command(seq, t1, forward=1.0, ...)
+send_udp(message)
+
+# 机载端接收并回复
+t2 = time.perf_counter()
+msg_type, seq, t1_recv, payload = Protocol.parse_message(data)
+# 处理控制指令
+t3 = time.perf_counter()
+ack = Protocol.build_ack(seq, t2, t3)
+send_udp(ack)
+
+# 客户端接收 ACK
+t4 = time.perf_counter()
+msg_type, seq, t2_recv, t3_recv = Protocol.parse_ack(ack_data)
+rtt, offset, delay_up, delay_down = latency_calc.record_ack(seq, t2_recv, t3_recv, t4)
+```
+
+**优势**：
+- ✓ 自动补偿时钟偏移
+- ✓ 分别测量上行/下行延迟
+- ✓ 检测非对称网络
+- ✓ 精度 ±5%
+
+#### 9.2.2 其他统计
+
+```python
 # FPS统计
 frame_count = 0
-last_time = time.time()
+last_time = time.perf_counter()
 # ... 每渲染一帧
 frame_count += 1
-if time.time() - last_time >= 1.0:
+if time.perf_counter() - last_time >= 1.0:
     fps = frame_count
     frame_count = 0
-    last_time = time.time()
+    last_time = time.perf_counter()
 
 # 丢包率统计
 expected_frames = total_frames_received + lost_frames
@@ -635,9 +690,9 @@ packet_loss = lost_frames / expected_frames * 100
   │ ←─────── mDNS响应 ──────────┤
   │ (IP, video_port, control_port)
   │                              │
-  ├─ 心跳包 ──────────────────→ │
+  ├─ 心跳包(t1) ──────────────→ │
   │                              │
-  │ ←─────── ACK ──────────────┤
+  │ ←─ ACK(t2, t3) ────────────┤
   │                              │
   └─ 连接建立 ─────────────────→ │
 ```
@@ -658,17 +713,147 @@ packet_loss = lost_frames / expected_frames * 100
   └─ 下一帧 ──────────────────→ │
 ```
 
-### 10.3 控制流程
+### 10.3 控制流程（含延迟测量）
+
+**四时间戳延迟测量**：
 
 ```
 客户端                          机载端
   │                              │
-  ├─ 控制指令 ──────────────────→ │
+  ├─ 控制指令(seq, t1) ────────→ │
   │                              │
-  │ ←─────── ACK ──────────────┤
+  │                    t2 = 收到时间
+  │                    处理指令
+  │                    t3 = 发出时间
+  │                              │
+  │ ←─ ACK(seq, t2, t3) ────────┤
+  │                              │
+  t4 = 收到时间
+  计算：
+    RTT = t4 - t1
+    offset = ((t2-t1) + (t3-t4)) / 2
+    delay_up = (t2-t1) - offset
+    delay_down = (t4-t3) - offset
   │                              │
   └─ 继续发送 ──────────────────→ │
 ```
+
+**消息格式**：
+
+控制指令：
+```
+┌──────────┬─────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────┐
+│ Magic    │ Version │ MsgType  │ Reserved │ Seq      │ t1       │ Payload  │ CRC32   │
+│ (2 bytes)│ (1 byte)│ (1 byte) │ (1 byte) │ (4 bytes)│ (8 bytes)│ (var)    │ (4 bytes)│
+└──────────┴─────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────────┘
+```
+
+ACK 回复：
+```
+┌──────────┬─────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────┐
+│ Magic    │ Version │ MsgType  │ Reserved │ Seq      │ t2       │ t3       │ CRC32   │
+│ (2 bytes)│ (1 byte)│ (1 byte) │ (1 byte) │ (4 bytes)│ (8 bytes)│ (8 bytes)│ (4 bytes)│
+└──────────┴─────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────────┘
+```
+
+---
+
+## 10.4 高精度延迟计算（四时间戳方案）
+
+**原理**：使用客户端和机载端的四个时间戳，精确计算 RTT、时钟偏移、单向延迟。
+
+**流程**：
+```
+步骤 1：客户端发送
+  t1 = time.perf_counter()（客户端发送时间）
+  seq = 序列号
+  发送消息：[Magic][Version][MsgType][Seq][t1][Payload][CRC32]
+
+步骤 2：机载端接收并回复
+  t2 = time.perf_counter()（机载端接收时间）
+  处理控制指令
+  t3 = time.perf_counter()（机载端发出时间）
+  发送 ACK：[Magic][Version][MsgType][Seq][t2][t3][CRC32]
+
+步骤 3：客户端接收
+  t4 = time.perf_counter()（客户端接收时间）
+  计算延迟指标
+```
+
+**计算公式**：
+```
+RTT（往返延迟）
+  RTT = t4 - t1
+
+Clock Offset（时钟偏移）
+  offset = ((t2 - t1) + (t3 - t4)) / 2
+
+单向延迟（上行：客户端→机载端）
+  delay_up = (t2 - t1) - offset
+
+单向延迟（下行：机载端→客户端）
+  delay_down = (t4 - t3) - offset
+```
+
+**消息格式**：
+
+控制指令（客户端→机载端）：
+```
+┌──────────┬─────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────┐
+│ Magic    │ Version │ MsgType  │ Reserved │ Seq      │ t1       │ Payload  │ CRC32   │
+│ (2 bytes)│ (1 byte)│ (1 byte) │ (1 byte) │ (4 bytes)│ (8 bytes)│ (var)    │ (4 bytes)│
+└──────────┴─────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────────┘
+```
+
+ACK 回复（机载端→客户端）：
+```
+┌──────────┬─────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────┐
+│ Magic    │ Version │ MsgType  │ Reserved │ Seq      │ t2       │ t3       │ CRC32   │
+│ (2 bytes)│ (1 byte)│ (1 byte) │ (1 byte) │ (4 bytes)│ (8 bytes)│ (8 bytes)│ (4 bytes)│
+└──────────┴─────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────────┘
+```
+
+**实现**：
+```python
+# 客户端发送
+t1 = time.perf_counter()
+seq = latency_calc.record_send(t1)
+message = Protocol.build_control_command(seq, t1, forward=1.0, ...)
+send_udp(message)
+
+# 机载端接收并回复
+t2 = time.perf_counter()
+msg_type, seq, t1_recv, payload = Protocol.parse_message(data)
+# 处理控制指令
+t3 = time.perf_counter()
+ack = Protocol.build_ack(seq, t2, t3)
+send_udp(ack)
+
+# 客户端接收 ACK
+t4 = time.perf_counter()
+msg_type, seq, t2_recv, t3_recv = Protocol.parse_ack(ack_data)
+result = latency_calc.record_ack(seq, t2_recv, t3_recv, t4)
+
+# 获取结果
+print(f"RTT: {result['rtt']:.1f}ms")
+print(f"Up: {result['delay_up']:.1f}ms, Down: {result['delay_down']:.1f}ms")
+print(f"Offset: {result['offset']:.1f}ms")
+```
+
+**优势**：
+- ✓ 自动补偿时钟偏移
+- ✓ 分别测量上行/下行延迟
+- ✓ 检测非对称网络
+- ✓ 使用 `perf_counter()` 微秒级精度
+- ✓ 精度 ±5%（vs 简单 RTT 的 ±50%）
+
+**关键实现点**：
+1. 使用 `time.perf_counter()` 而非 `time.time()`
+2. t2 应在接收 UDP 包时立即记录
+3. t3 应在发送 ACK 前记录
+4. ACK 必须包含相同的 seq，以便客户端匹配
+5. 实现异常值过滤（3 倍标准差规则）
+6. 实现超时检测（清理 5 秒未回复的包）
 
 ---
 

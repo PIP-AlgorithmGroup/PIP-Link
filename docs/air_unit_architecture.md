@@ -153,12 +153,15 @@ ROS2话题 → FrameBuffer(最新帧) → Encoder → Packetizer → FEC → UDP
 **职责**：
 - UDP接收控制包
 - 消息解析与验证
+- 记录接收时间戳（用于延迟测量）
 - 发布到ROS2话题
-- 发送ACK
+- 发送ACK（包含时间戳）
 
 **数据流**：
 ```
 客户端 → UDPReceiver → MessageParser → Validator → ROS2Publisher → 其他节点
+                                                          ↓
+                                                    ACKSender (含时间戳)
 ```
 
 **关键组件**：
@@ -166,17 +169,27 @@ ROS2话题 → FrameBuffer(最新帧) → Encoder → Packetizer → FEC → UDP
 | 组件 | 职责 |
 |------|------|
 | UDPReceiver | UDP接收 |
-| MessageParser | 解析消息头、负载 |
+| MessageParser | 解析消息头、负载、时间戳 |
 | Validator | CRC校验、消息类型验证 |
 | ROS2Publisher | 发布到指定话题 |
-| ACKSender | 发送ACK确认 |
+| ACKSender | 发送ACK确认（含 t2、t3 时间戳） |
 
 **消息格式**：
+
+控制指令（客户端发送）：
 ```
-┌──────────┬─────────┬──────────┬──────────┬──────────┬─────────┐
-│ Magic    │ Version │ MsgType  │ Seq      │ Payload  │ CRC32   │
-│ (2 bytes)│ (1 byte)│ (1 byte) │ (4 bytes)│ (var)    │ (4 bytes)│
-└──────────┴─────────┴──────────┴──────────┴──────────┴─────────┘
+┌──────────┬─────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────┐
+│ Magic    │ Version │ MsgType  │ Reserved │ Seq      │ t1       │ Payload  │ CRC32   │
+│ (2 bytes)│ (1 byte)│ (1 byte) │ (1 byte) │ (4 bytes)│ (8 bytes)│ (var)    │ (4 bytes)│
+└──────────┴─────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────────┘
+```
+
+ACK 回复（机载端发送）：
+```
+┌──────────┬─────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────┐
+│ Magic    │ Version │ MsgType  │ Reserved │ Seq      │ t2       │ t3       │ CRC32   │
+│ (2 bytes)│ (1 byte)│ (1 byte) │ (1 byte) │ (4 bytes)│ (8 bytes)│ (8 bytes)│ (4 bytes)│
+└──────────┴─────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────────┘
 ```
 
 **消息类型**：
@@ -184,6 +197,21 @@ ROS2话题 → FrameBuffer(最新帧) → Encoder → Packetizer → FEC → UDP
 - 0x02: 参数修改（ParamUpdate）
 - 0x03: 参数查询（ParamQuery）
 - 0x04: 心跳（Heartbeat）
+- 0x05: ACK（Acknowledgement）
+
+**延迟测量流程**：
+```
+1. 接收消息时记录 t2 = 当前时间
+2. 解析消息，提取 t1（客户端发送时间）
+3. 处理控制指令
+4. 发出 ACK 前记录 t3 = 当前时间
+5. 在 ACK 中包含 t2 和 t3
+6. 客户端收到 ACK 后计算：
+   - RTT = t4 - t1
+   - offset = ((t2-t1) + (t3-t4)) / 2
+   - delay_up = (t2-t1) - offset
+   - delay_down = (t4-t3) - offset
+```
 
 ### 3.4 ServiceDiscovery（mDNS线程）
 
@@ -321,30 +349,50 @@ param_callback_handle_ = node_->add_on_set_parameters_callback(
 
 ### 6.2 控制流（RX）
 
+**四时间戳延迟测量流程**：
+
 ```
 1. 客户端发送控制包（UDP）
+   ├─ seq: 序列号
+   └─ t1: 客户端发送时间
    ↓
-2. RX线程UDPReceiver接收
+2. RX线程 UDPReceiver 接收
+   ├─ t2 = 当前时间（接收时间）
+   └─ 记录 t2
    ↓
-3. MessageParser解析
-   ├─ 读取Header
-   ├─ 验证Magic、Version
-   └─ 提取Payload
+3. MessageParser 解析
+   ├─ 读取 Header（Magic、Version、MsgType、Seq、t1）
+   ├─ 验证 Magic、Version
+   └─ 提取 Payload
    ↓
-4. Validator验证
-   ├─ CRC32校验
+4. Validator 验证
+   ├─ CRC32 校验
    ├─ 消息类型检查
    └─ 序列号检查
    ↓
-5. 根据消息类型处理
-   ├─ ControlCommand → 发布到control_output_topic
-   ├─ ParamUpdate → 发布到param_output_topic
-   └─ ParamQuery → 查询并回复
+5. 处理控制指令
+   ├─ 解析 ControlCommand
+   └─ 发布到 control_output_topic
    ↓
-6. ACKSender发送ACK到客户端
+6. ACKSender 发送 ACK
+   ├─ t3 = 当前时间（发出时间）
+   ├─ 构建 ACK(seq, t2, t3)
+   └─ 发送到客户端
    ↓
-7. 其他ROS2节点订阅话题，处理控制指令
+7. 客户端收到 ACK
+   ├─ t4 = 当前时间
+   └─ 计算延迟：
+      - RTT = t4 - t1
+      - offset = ((t2-t1) + (t3-t4)) / 2
+      - delay_up = (t2-t1) - offset
+      - delay_down = (t4-t3) - offset
 ```
+
+**关键点**：
+- t2 应在接收 UDP 包时立即记录（最小化处理延迟）
+- t3 应在发送 ACK 前记录（最小化处理延迟）
+- 使用 `time.perf_counter()` 确保高精度
+- ACK 必须包含相同的 seq，以便客户端匹配
 
 ---
 
@@ -396,6 +444,95 @@ ros2 run video_transmitter video_transmitter_node \
   -p input_topic:=/annotated_frame \
   -p video_port:=5000 \
   -p encoder:=h264
+```
+
+---
+
+## 7. 高精度延迟计算实现
+
+### 7.1 四时间戳方案
+
+机载端在 RX 线程中实现高精度延迟测量：
+
+**接收流程**：
+```cpp
+// 1. 接收 UDP 包时立即记录时间
+t2 = std::chrono::high_resolution_clock::now();
+
+// 2. 解析消息，提取 t1（客户端发送时间）
+msg_type, seq, t1, payload = parse_message(data);
+
+// 3. 处理控制指令
+process_control_command(payload);
+
+// 4. 发出 ACK 前记录时间
+t3 = std::chrono::high_resolution_clock::now();
+
+// 5. 构建 ACK，包含 t2 和 t3
+ack = build_ack(seq, t2, t3);
+send_udp(ack);
+```
+
+**关键点**：
+- t2 应在接收 UDP 包时立即记录（最小化处理延迟）
+- t3 应在发送 ACK 前记录（最小化处理延迟）
+- 使用高精度时钟（C++ `high_resolution_clock` 或 Python `perf_counter()`）
+- ACK 必须包含相同的 seq，以便客户端匹配
+
+### 7.2 消息格式
+
+**控制指令消息**（客户端→机载端）：
+```
+┌──────────┬─────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────┐
+│ Magic    │ Version │ MsgType  │ Reserved │ Seq      │ t1       │ Payload  │ CRC32   │
+│ (2 bytes)│ (1 byte)│ (1 byte) │ (1 byte) │ (4 bytes)│ (8 bytes)│ (var)    │ (4 bytes)│
+└──────────┴─────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────────┘
+
+Magic: 0xABCD
+Version: 0x01
+MsgType: 0x01 (ControlCommand)
+Seq: 序列号（0-0xFFFFFFFF）
+t1: 客户端发送时间（double，8 字节）
+Payload: 控制指令数据
+CRC32: 整个消息的 CRC32 校验
+```
+
+**ACK 消息**（机载端→客户端）：
+```
+┌──────────┬─────────┬──────────┬──────────┬──────────┬──────────┬──────────┬─────────┐
+│ Magic    │ Version │ MsgType  │ Reserved │ Seq      │ t2       │ t3       │ CRC32   │
+│ (2 bytes)│ (1 byte)│ (1 byte) │ (1 byte) │ (4 bytes)│ (8 bytes)│ (8 bytes)│ (4 bytes)│
+└──────────┴─────────┴──────────┴──────────┴──────────┴──────────┴──────────┴─────────┘
+
+Magic: 0xABCD
+Version: 0x01
+MsgType: 0x05 (ACK)
+Seq: 相同的序列号
+t2: 机载端接收时间（double，8 字节）
+t3: 机载端发出时间（double，8 字节）
+CRC32: 整个消息的 CRC32 校验
+```
+
+### 7.3 客户端延迟计算
+
+客户端接收 ACK 后计算延迟指标：
+
+```python
+# 客户端接收 ACK
+t4 = time.perf_counter()
+msg_type, seq, t2, t3 = Protocol.parse_ack(ack_data)
+
+# 计算延迟
+rtt = (t4 - t1) * 1000  # 毫秒
+offset = ((t2 - t1) + (t3 - t4)) / 2 * 1000
+delay_up = (t2 - t1) * 1000 - offset
+delay_down = (t4 - t3) * 1000 - offset
+
+# 应用场景
+if abs(delay_up - delay_down) > 20:
+    print("Asymmetric network detected")
+if rtt > 200:
+    print("High latency warning")
 ```
 
 ---
