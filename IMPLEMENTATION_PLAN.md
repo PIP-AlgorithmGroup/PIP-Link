@@ -520,10 +520,10 @@ netstat -an | findstr UDP
 | 1 | LatencyCalculator | Completed | 100% ✓ |
 | 1 | UDP 基础 | Completed | 100% ✓ |
 | 2 | ServiceDiscovery | Completed | 100% ✓ |
-| 2 | ControlSender | Not Started | 0% |
-| 2 | VideoReceiver | Not Started | 0% |
-| 2 | HeartbeatManager | Not Started | 0% |
-| 3 | SessionManager | Not Started | 0% |
+| 2 | ControlSender | Completed | 100% ✓ |
+| 2 | VideoReceiver | Completed | 100% ✓ |
+| 2 | HeartbeatManager | Completed | 100% ✓ |
+| 3 | SessionManager | In Progress | 30% |
 | 3 | InputMapper | Not Started | 0% |
 | 3 | StatusMonitor | Not Started | 0% |
 | 4 | 主循环框架 | Not Started | 0% |

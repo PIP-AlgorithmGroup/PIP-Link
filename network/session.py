@@ -2,12 +2,16 @@
 
 import threading
 import time
+import logging
 from enum import Enum
 from typing import Optional, Callable
 from network.service_discovery import ServiceDiscovery
 from network.video_receiver import VideoReceiver
 from network.control_sender import ControlSender
 from network.heartbeat import HeartbeatManager
+
+
+logger = logging.getLogger(__name__)
 
 
 class SessionState(Enum):
@@ -21,7 +25,7 @@ class SessionState(Enum):
 
 
 class SessionManager:
-    """会话管理器"""
+    """会话管理器 - 管理连接生命周期"""
 
     def __init__(self):
         self.state = SessionState.IDLE
@@ -35,11 +39,17 @@ class SessionManager:
 
         # 服务器信息
         self.server_ip: str = ""
-        self.server_port: int = 0
+        self.control_port: int = 0
+        self.video_port: int = 0
 
         # 回调
         self.on_state_changed: Optional[Callable] = None
         self.on_error: Optional[Callable] = None
+
+        # 自动重连
+        self._reconnect_thread: Optional[threading.Thread] = None
+        self._reconnect_enabled = False
+        self._reconnect_interval = 5.0
 
     def start_discovery(self, service_name: str):
         """启动 mDNS 发现"""
@@ -51,23 +61,50 @@ class SessionManager:
 
             self.service_discovery = ServiceDiscovery()
             self.service_discovery.on_service_found = self._on_service_found
-            self.service_discovery.on_error = self._on_discovery_error
-            self.service_discovery.start(service_name)
+            self.service_discovery.on_service_lost = self._on_service_lost
+            self.service_discovery.start()
 
-    def _on_service_found(self, ip: str, port: int):
+            # 等待服务发现
+            logger.info(f"Waiting for service: {service_name}")
+            service_info = self.service_discovery.wait_for_service(service_name, timeout=10.0)
+
+            if service_info:
+                self._on_service_found(service_name, service_info)
+            else:
+                logger.error(f"Service discovery timeout: {service_name}")
+                self._set_state(SessionState.IDLE)
+                if self.on_error:
+                    self.on_error("Service discovery timeout")
+
+    def _on_service_found(self, service_name: str, service_info: dict):
         """服务发现回调"""
-        print(f"[SessionManager] Service found: {ip}:{port}")
-        with self._lock:
-            self.server_ip = ip
-            self.server_port = port
-        self._connect_to_server()
+        try:
+            # 解析服务信息
+            addresses = service_info.get('addresses', [])
+            port = service_info.get('port', 0)
+            properties = service_info.get('properties', {})
 
-    def _on_discovery_error(self, error: str):
-        """发现错误回调"""
-        print(f"[SessionManager] Discovery error: {error}")
-        self._set_state(SessionState.IDLE)
-        if self.on_error:
-            self.on_error(error)
+            if not addresses or not port:
+                logger.error("Invalid service info")
+                return
+
+            self.server_ip = addresses[0]
+            self.control_port = port
+            self.video_port = port + 1000  # 视频端口偏移
+
+            logger.info(f"Service found: {self.server_ip}:{self.control_port}")
+            self._connect_to_server()
+
+        except Exception as e:
+            logger.error(f"Service found error: {e}")
+            self._set_state(SessionState.IDLE)
+            if self.on_error:
+                self.on_error(str(e))
+
+    def _on_service_lost(self, service_name: str):
+        """服务丢失回调"""
+        logger.warning(f"Service lost: {service_name}")
+        self._start_reconnect()
 
     def _connect_to_server(self):
         """连接到服务器"""
@@ -81,55 +118,107 @@ class SessionManager:
                     self.service_discovery = None
 
                 # 启动视频接收
-                self.video_receiver = VideoReceiver(self.server_port)
+                self.video_receiver = VideoReceiver(self.video_port)
                 self.video_receiver.start()
 
                 # 启动控制发送
                 self.control_sender = ControlSender()
-                self.control_sender.start(self.server_ip, self.server_port)
+                self.control_sender.start(self.server_ip, self.control_port)
 
                 # 启动心跳
                 self.heartbeat = HeartbeatManager()
-                self.heartbeat.start(self.server_ip, self.server_port)
+                self.heartbeat.on_connection_lost = self._on_heartbeat_timeout
+                self.heartbeat.on_connection_restored = self._on_heartbeat_restored
+                self.heartbeat.start(self.server_ip, self.control_port)
 
                 self._set_state(SessionState.CONNECTED)
-                print(f"[SessionManager] Connected to {self.server_ip}:{self.server_port}")
+                logger.info(f"Connected to {self.server_ip}:{self.control_port}")
 
             except Exception as e:
-                print(f"[SessionManager] Connection error: {e}")
+                logger.error(f"Connection error: {e}")
                 self._set_state(SessionState.IDLE)
                 if self.on_error:
                     self.on_error(str(e))
 
+    def _on_heartbeat_timeout(self):
+        """心跳超时回调"""
+        logger.warning("Heartbeat timeout, starting reconnect")
+        self._start_reconnect()
+
+    def _on_heartbeat_restored(self):
+        """心跳恢复回调"""
+        logger.info("Heartbeat restored")
+        self._stop_reconnect()
+
+    def _start_reconnect(self):
+        """启动自动重连"""
+        with self._lock:
+            if self._reconnect_enabled:
+                return
+
+            self._reconnect_enabled = True
+            self._set_state(SessionState.RECONNECTING)
+
+            self._reconnect_thread = threading.Thread(target=self._reconnect_loop, daemon=True)
+            self._reconnect_thread.start()
+
+    def _stop_reconnect(self):
+        """停止自动重连"""
+        with self._lock:
+            self._reconnect_enabled = False
+
+    def _reconnect_loop(self):
+        """重连循环"""
+        try:
+            while self._reconnect_enabled:
+                logger.info(f"Reconnecting in {self._reconnect_interval}s...")
+                time.sleep(self._reconnect_interval)
+
+                if not self._reconnect_enabled:
+                    break
+
+                # 断开现有连接
+                self._disconnect_internal()
+
+                # 重新发现服务
+                logger.info("Rediscovering service...")
+                self.start_discovery("air_unit")
+
+        except Exception as e:
+            logger.error(f"Reconnect loop error: {e}")
+
     def disconnect(self):
         """断开连接"""
         with self._lock:
-            self._set_state(SessionState.DISCONNECTED)
-
-            if self.service_discovery:
-                self.service_discovery.stop()
-                self.service_discovery = None
-
-            if self.video_receiver:
-                self.video_receiver.stop()
-                self.video_receiver = None
-
-            if self.control_sender:
-                self.control_sender.stop()
-                self.control_sender = None
-
-            if self.heartbeat:
-                self.heartbeat.stop()
-                self.heartbeat = None
-
+            self._stop_reconnect()
+            self._disconnect_internal()
             self._set_state(SessionState.IDLE)
-            print("[SessionManager] Disconnected")
+
+    def _disconnect_internal(self):
+        """内部断开连接"""
+        if self.service_discovery:
+            self.service_discovery.stop()
+            self.service_discovery = None
+
+        if self.video_receiver:
+            self.video_receiver.stop()
+            self.video_receiver = None
+
+        if self.control_sender:
+            self.control_sender.stop()
+            self.control_sender = None
+
+        if self.heartbeat:
+            self.heartbeat.stop()
+            self.heartbeat = None
+
+        logger.info("Disconnected")
 
     def _set_state(self, new_state: SessionState):
         """设置状态"""
         if self.state != new_state:
             self.state = new_state
-            print(f"[SessionManager] State: {new_state.value}")
+            logger.info(f"State: {new_state.value}")
             if self.on_state_changed:
                 self.on_state_changed(new_state)
 
@@ -138,7 +227,8 @@ class SessionManager:
         stats = {
             "state": self.state.value,
             "server_ip": self.server_ip,
-            "server_port": self.server_port,
+            "control_port": self.control_port,
+            "video_port": self.video_port,
         }
 
         if self.video_receiver:
