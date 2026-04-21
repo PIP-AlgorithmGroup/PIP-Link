@@ -98,8 +98,8 @@ class Theme:
         style.frame_border_size = 1.0
 
         # Padding and spacing
-        style.frame_padding = (10, 6)
-        style.item_spacing = (10, 8)
+        style.frame_padding = (10, 7)
+        style.item_spacing = (10, 10)
         style.item_inner_spacing = (6, 6)
         style.window_padding = (14, 14)
         style.indent_spacing = 18.0

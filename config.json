@@ -1,5 +1,9 @@
 {
   "key_bindings": {
+    "toggle_ready": "F6",
+    "toggle_hud": "Tab",
+    "toggle_console": "`",
+    "toggle_menu": "Esc",
     "forward": "W",
     "backward": "S",
     "left": "A",

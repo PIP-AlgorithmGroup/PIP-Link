@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//d/~Document/_$.Project/PIP-Link/**)",
+      "Bash(rm -f PACKAGING_WINDOWS.md BACKEND_SUMMARY.md USER_GUIDE.md TESTING_GUIDE.md AIR_UNIT_SERVER_GUIDE.md QUICK_REFERENCE.md PROJECT_SUMMARY.md README.md TROUBLESHOOTING.md IMPLEMENTATION_PLAN.md tests/AIR_UNIT_SIMULATOR_GUIDE.md tests/README.md)"
+    ]
+  }
+}

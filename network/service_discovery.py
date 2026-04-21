@@ -2,6 +2,7 @@
 mDNS 服务发现
 """
 
+import socket
 import threading
 import json
 import logging
@@ -101,7 +102,7 @@ class ServiceDiscovery:
         service_data = {
             'name': info.name,
             'type': info.type,
-            'addresses': [str(addr) for addr in info.addresses],
+            'addresses': [socket.inet_ntoa(addr) for addr in info.addresses],
             'port': info.port,
             'properties': {}
         }

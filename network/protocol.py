@@ -3,6 +3,7 @@
 """
 
 import struct
+import json
 import zlib
 from typing import Tuple, Optional
 from dataclasses import dataclass
@@ -18,40 +19,27 @@ MSG_TYPE_PARAM_UPDATE = 0x02
 MSG_TYPE_PARAM_QUERY = 0x03
 MSG_TYPE_HEARTBEAT = 0x04
 MSG_TYPE_ACK = 0x05
+MSG_TYPE_VIDEO_ACK = 0x06
+MSG_TYPE_VIDEO_NACK = 0x07
+
+
+KEYBOARD_STATE_SIZE = 10
 
 
 @dataclass
 class ControlCommand:
-    """控制指令"""
+    """控制指令 — 10 字节键盘位图"""
     seq: int
     t1: float
-    forward: float = 0.0
-    turn: float = 0.0
-    action: int = 0
-    sprint: float = 0.0
+    keyboard_state: bytes = b'\x00' * KEYBOARD_STATE_SIZE
 
     def to_bytes(self) -> bytes:
-        """序列化为字节"""
-        return struct.pack(
-            '=fffi',
-            self.forward,
-            self.turn,
-            self.sprint,
-            self.action
-        )
+        return bytes(self.keyboard_state[:KEYBOARD_STATE_SIZE]).ljust(KEYBOARD_STATE_SIZE, b'\x00')
 
     @staticmethod
     def from_bytes(data: bytes) -> 'ControlCommand':
-        """从字节反序列化"""
-        forward, turn, sprint, action = struct.unpack('=fffi', data)
-        return ControlCommand(
-            seq=0,
-            t1=0.0,
-            forward=forward,
-            turn=turn,
-            action=action,
-            sprint=sprint
-        )
+        kb = data[:KEYBOARD_STATE_SIZE] if len(data) >= KEYBOARD_STATE_SIZE else data.ljust(KEYBOARD_STATE_SIZE, b'\x00')
+        return ControlCommand(seq=0, t1=0.0, keyboard_state=kb)
 
 
 @dataclass
@@ -69,25 +57,15 @@ class Protocol:
     def build_control_command(
         seq: int,
         t1: float,
-        forward: float = 0.0,
-        turn: float = 0.0,
-        action: int = 0,
-        sprint: float = 0.0
+        keyboard_state: bytes = b'\x00' * KEYBOARD_STATE_SIZE,
     ) -> bytes:
         """
         构建控制指令消息
 
         格式：
-        [Magic:2][Version:1][MsgType:1][Reserved:1][Seq:4][t1:8][Payload:var][CRC32:4]
+        [Magic:2][Version:1][MsgType:1][Reserved:1][Seq:4][t1:8][KeyboardState:10][CRC32:4]
         """
-        # 构建 payload
-        payload = struct.pack(
-            '=fffi',
-            forward,
-            turn,
-            sprint,
-            action
-        )
+        payload = bytes(keyboard_state[:KEYBOARD_STATE_SIZE]).ljust(KEYBOARD_STATE_SIZE, b'\x00')
 
         # 构建消息头（不含 CRC）
         header = struct.pack(
@@ -282,3 +260,81 @@ class Protocol:
         t1 = struct.unpack('=d', data[9:17])[0]
 
         return seq, t1
+
+    @staticmethod
+    def build_video_ack(frame_id: int) -> bytes:
+        """
+        构建视频帧 ACK
+
+        格式：[Magic:2][Version:1][MsgType:1][Reserved:1][FrameID:4][CRC32:4]
+        """
+        msg = struct.pack('=HBBBI', MAGIC, VERSION, MSG_TYPE_VIDEO_ACK, 0, frame_id)
+        crc = zlib.crc32(msg) & 0xffffffff
+        return msg + struct.pack('=I', crc)
+
+    @staticmethod
+    def parse_video_ack(data: bytes) -> int:
+        """解析视频帧 ACK，返回 frame_id"""
+        if len(data) < 13:
+            raise ValueError(f"Video ACK 太短: {len(data)} bytes")
+        magic, version, msg_type, reserved, frame_id = struct.unpack('=HBBBI', data[:9])
+        if magic != MAGIC or msg_type != MSG_TYPE_VIDEO_ACK:
+            raise ValueError("不是 Video ACK")
+        crc_received = struct.unpack('=I', data[-4:])[0]
+        crc_calculated = zlib.crc32(data[:-4]) & 0xffffffff
+        if crc_received != crc_calculated:
+            raise ValueError("CRC 校验失败")
+        return frame_id
+
+    @staticmethod
+    def build_video_nack(frame_id: int, missing_chunks: list) -> bytes:
+        """
+        构建视频帧 NACK
+
+        格式：[Magic:2][Version:1][MsgType:1][Reserved:1][FrameID:4][NumChunks:2][ChunkIdx:2*N][CRC32:4]
+        """
+        header = struct.pack('=HBBBI', MAGIC, VERSION, MSG_TYPE_VIDEO_NACK, 0, frame_id)
+        chunks_data = struct.pack('=H', len(missing_chunks))
+        for idx in missing_chunks:
+            chunks_data += struct.pack('=H', idx)
+        msg = header + chunks_data
+        crc = zlib.crc32(msg) & 0xffffffff
+        return msg + struct.pack('=I', crc)
+
+    @staticmethod
+    def parse_video_nack(data: bytes) -> tuple:
+        """解析视频帧 NACK，返回 (frame_id, [missing_chunk_indices])"""
+        if len(data) < 15:
+            raise ValueError(f"Video NACK 太短: {len(data)} bytes")
+        magic, version, msg_type, reserved, frame_id = struct.unpack('=HBBBI', data[:9])
+        if magic != MAGIC or msg_type != MSG_TYPE_VIDEO_NACK:
+            raise ValueError("不是 Video NACK")
+        crc_received = struct.unpack('=I', data[-4:])[0]
+        crc_calculated = zlib.crc32(data[:-4]) & 0xffffffff
+        if crc_received != crc_calculated:
+            raise ValueError("CRC 校验失败")
+        num_chunks = struct.unpack('=H', data[9:11])[0]
+        missing = []
+        for i in range(num_chunks):
+            offset = 11 + i * 2
+            missing.append(struct.unpack('=H', data[offset:offset + 2])[0])
+        return frame_id, missing
+
+    @staticmethod
+    def build_param_update(seq: int, t1: float, params: dict) -> bytes:
+        """构建参数修改消息 — payload 为 JSON"""
+        payload = json.dumps(params).encode('utf-8')
+        header = struct.pack('=HBBBI', MAGIC, VERSION, MSG_TYPE_PARAM_UPDATE, 0, seq)
+        timestamp = struct.pack('=d', t1)
+        msg = header + timestamp + payload
+        crc = zlib.crc32(msg) & 0xffffffff
+        return msg + struct.pack('=I', crc)
+
+    @staticmethod
+    def build_param_query(seq: int, t1: float) -> bytes:
+        """构建参数查询消息"""
+        header = struct.pack('=HBBBI', MAGIC, VERSION, MSG_TYPE_PARAM_QUERY, 0, seq)
+        timestamp = struct.pack('=d', t1)
+        msg = header + timestamp
+        crc = zlib.crc32(msg) & 0xffffffff
+        return msg + struct.pack('=I', crc)

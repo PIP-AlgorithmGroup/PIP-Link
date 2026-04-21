@@ -32,6 +32,8 @@ class HeartbeatManager:
         self.on_error: Optional[Callable] = None
         self.on_connection_lost: Optional[Callable] = None
         self.on_connection_restored: Optional[Callable] = None
+        self.on_first_ack: Optional[Callable] = None  # 首次握手成功
+        self._first_ack_fired = False
 
         # 统计
         self._stats_lock = threading.Lock()
@@ -62,9 +64,11 @@ class HeartbeatManager:
     def stop(self):
         """停止心跳"""
         self.is_running = False
-        if self.socket:
+        sock = self.socket
+        self.socket = None
+        if sock:
             try:
-                self.socket.close()
+                sock.close()
             except Exception:
                 pass
         logger.info("HeartbeatManager stopped")
@@ -108,6 +112,8 @@ class HeartbeatManager:
                         self._process_heartbeat_ack(data)
                 except socket.timeout:
                     pass
+                except ConnectionResetError:
+                    pass  # Windows ICMP port unreachable — 忽略
                 except Exception as e:
                     if self.is_running:
                         logger.error(f"RX error: {e}")
@@ -143,7 +149,6 @@ class HeartbeatManager:
         try:
             seq, t2, t3 = Protocol.parse_ack(data)
 
-            # 移除待确认
             with self._pending_lock:
                 if seq in self._pending_heartbeats:
                     del self._pending_heartbeats[seq]
@@ -151,10 +156,17 @@ class HeartbeatManager:
             with self._stats_lock:
                 self.heartbeats_acked += 1
 
-            # 连接恢复
+            # 收到 ACK 就重置超时计数
+            self._timeout_count = 0
+
+            if not self._first_ack_fired:
+                self._first_ack_fired = True
+                logger.info("First heartbeat ACK received — handshake OK")
+                if self.on_first_ack:
+                    self.on_first_ack()
+
             if self._connection_lost:
                 self._connection_lost = False
-                self._timeout_count = 0
                 logger.info("Connection restored")
                 if self.on_connection_restored:
                     self.on_connection_restored()
@@ -163,30 +175,22 @@ class HeartbeatManager:
             logger.debug(f"Heartbeat ACK parse error: {e}")
 
     def _check_timeout(self):
-        """检查超时"""
+        """检查超时 — 清理过期心跳，连续超时触发断连"""
         current_time = time.time()
         timeout_seqs = []
 
         with self._pending_lock:
             for seq, send_time in list(self._pending_heartbeats.items()):
-                elapsed = current_time - send_time
-
-                # 5秒超时
-                if elapsed > 5.0:
+                if current_time - send_time > 5.0:
                     timeout_seqs.append(seq)
+            for seq in timeout_seqs:
+                del self._pending_heartbeats[seq]
 
         if timeout_seqs:
-            with self._pending_lock:
-                for seq in timeout_seqs:
-                    if seq in self._pending_heartbeats:
-                        del self._pending_heartbeats[seq]
-
             with self._stats_lock:
                 self.timeouts += len(timeout_seqs)
+            self._timeout_count += len(timeout_seqs)
 
-            self._timeout_count += 1
-
-            # 3次超时触发连接丢失
             if self._timeout_count >= 3 and not self._connection_lost:
                 self._connection_lost = True
                 logger.warning("Connection lost (3 timeouts)")

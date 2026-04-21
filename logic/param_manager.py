@@ -13,8 +13,9 @@ class ParamManager:
 
             # Video
             "video_quality": 1,  # 0: Low, 1: Medium, 2: High, 3: Ultra
-            "resolution": 5,  # index into resolutions dict, default 1920x1080
-            "window_mode": 0,  # 0: Windowed, 1: Fullscreen
+            "resolution": 4,  # index into resolutions dict, default 1920x1080
+            "window_mode": 0,  # 0: Windowed, 1: Fullscreen (borderless)
+            "fullscreen_display": -1,  # -1: current display, 0+: specific display index
 
             # Recording
             "recording_enabled": False,

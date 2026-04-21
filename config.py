@@ -8,10 +8,10 @@ class Config:
     FULLSCREEN = False
 
     # Font config
-    FONT_SIZE = 18
-    FONT_SIZE_TITLE = 22
-    FONT_SIZE_BODY = 16
-    FONT_SIZE_MONO = 18
+    FONT_SIZE = 22
+    FONT_SIZE_TITLE = 28
+    FONT_SIZE_BODY = 20
+    FONT_SIZE_MONO = 22
     FONT_PATH = "C:\\Windows\\Fonts\\segoeui.ttf"
     FONT_PATH_BOLD = "C:\\Windows\\Fonts\\segoeuib.ttf"
     FONT_PATH_MONO = "C:\\Windows\\Fonts\\consola.ttf"
@@ -35,3 +35,7 @@ class Config:
 
     # 视频解码配置
     RENDER_QUEUE_MAX_SIZE = 3
+
+    # FEC 配置
+    FEC_ENABLED = True
+    FEC_REDUNDANCY = 0.2  # 20% 冗余

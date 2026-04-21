@@ -37,30 +37,27 @@ class StatusMonitor:
             # Calculate FPS
             current_time = time.time()
             elapsed = current_time - self.last_time
-            if elapsed >= 1.0:
+            if elapsed >= 0.5:
                 self.fps = self.frame_count / elapsed
                 self.frame_count = 0
                 self.last_time = current_time
 
-            # Update from session stats
+            # Update from session stats (rtt_avg 已经是毫秒)
             self.rtt_ms = session_stats.get("rtt_avg", 0.0)
             self.frames_received = session_stats.get("frames_received", 0)
             self.packets_received = session_stats.get("packets_received", 0)
             self.bytes_received = session_stats.get("bytes_received", 0)
 
-            # Calculate packet loss rate
-            if self.packets_received > 0:
-                packets_lost = session_stats.get("packets_lost", 0)
-                self.packet_loss_rate = (packets_lost / self.packets_received) * 100.0
-            else:
-                self.packet_loss_rate = 0.0
+            # 丢包率：优先使用视频帧丢包率，回退到控制指令丢包率
+            self.packet_loss_rate = session_stats.get("video_loss_rate",
+                                    session_stats.get("packet_loss_rate", 0.0))
 
     def get_status(self) -> dict:
         """Get current status"""
         with self._lock:
             return {
                 "fps": self.fps,
-                "rtt_ms": self.rtt_ms,
+                "latency_ms": self.rtt_ms,
                 "packet_loss_rate": self.packet_loss_rate,
                 "frames_received": self.frames_received,
                 "packets_received": self.packets_received,

@@ -4,8 +4,6 @@ import time
 import math
 import imgui
 
-from config import Config
-
 
 # 日志级别颜色
 _LEVEL_COLORS = {
@@ -55,6 +53,10 @@ class GameConsole:
         self._slide_tau = 0.08      # 展开/收起时间常数
         self._scroll_tau = 0.08     # 滚动时间常数
 
+        # 拖动调节高度
+        self._user_height_ratio = 0.55
+        self._dragging = False
+
     # ------------------------------------------------------------------
     # 公共 API
     # ------------------------------------------------------------------
@@ -80,7 +82,9 @@ class GameConsole:
         dt = min(now - self._last_frame_time, 0.1)
         self._last_frame_time = now
 
-        target_h = Config.RENDER_HEIGHT * 0.55 if self.visible else 0.0
+        io = imgui.get_io()
+        disp_w, disp_h = io.display_size
+        target_h = disp_h * self._user_height_ratio if self.visible else 0.0
 
         # 指数衰减动画
         diff = target_h - self._anim_h
@@ -95,13 +99,12 @@ class GameConsole:
             self._anim_h = 0.0
             return
 
-        w = float(Config.RENDER_WIDTH)
+        w = disp_w
         h = self._anim_h
         line_h = 22.0       # 每行高度
         pad_x = 14.0
         pad_y = 8.0
         input_h = 36.0      # 底部输入框预留高度
-        accent = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 1.0)
 
         draw_list = imgui.get_overlay_draw_list()
 
@@ -129,8 +132,21 @@ class GameConsole:
         draw_list.add_rect_filled(0, 0, w, h, bg_col, rounding=6.0,
                                   flags=imgui.DRAW_ROUND_CORNERS_BOTTOM)
 
-        # --- 底部 accent 线 ---
-        draw_list.add_line(0, h, w, h, accent, 1.0)
+        # --- 底部 accent 线 + 拖动手柄 ---
+        mx, my = io.mouse_pos
+        drag_zone = (0 <= mx <= w and h - 5 <= my <= h + 5)
+        if drag_zone and io.mouse_down[0] and not self._dragging:
+            self._dragging = True
+        if self._dragging:
+            if io.mouse_down[0]:
+                new_h = max(100, min(my, disp_h * 0.85))
+                self._user_height_ratio = new_h / disp_h
+            else:
+                self._dragging = False
+
+        line_thick = 3.0 if self._dragging else (2.0 if drag_zone else 1.0)
+        line_color = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 1.0 if (self._dragging or drag_zone) else 0.7)
+        draw_list.add_line(0, h, w, h, line_color, line_thick)
 
         # --- 日志区域 ---
         content_h = h - pad_y - input_h
@@ -142,8 +158,6 @@ class GameConsole:
         max_scroll = max(0.0, (total_lines * line_h) - content_h)
 
         # 处理滚轮（仅当鼠标在控制台区域内）
-        io = imgui.get_io()
-        mx, my = io.mouse_pos
         if 0 <= mx <= w and 0 <= my <= h:
             wheel = io.mouse_wheel
             if wheel != 0:

@@ -1,6 +1,7 @@
 """ImGui UI components - CS2 inspired flight control aesthetic"""
 
 import imgui
+import pygame
 import time
 import math
 import psutil
@@ -28,13 +29,24 @@ class ImGuiUI:
         self._connect_time: Optional[float] = None
         self._last_state: str = "idle"
 
+        # READY 状态（F5 切换）
+        self.is_ready = False
+        self._ready_anim_dir = False
+        self._ready_toggle_time = 0.0
+
+        # Input HUD state
+        self._stick_x = 0.0
+        self._stick_y = 0.0
+        self.show_hud = True
+        self._hud_alpha = 1.0
+
         # Bandwidth tracking
         self._last_bytes: int = 0
         self._last_bw_time: float = time.time()
         self._bandwidth_kbps: float = 0.0
 
         # Connection tab state
-        self._service_name_buf: bytearray = bytearray(Config.MDNS_SERVICE_NAME.encode() + b'\x00' * (128 - len(Config.MDNS_SERVICE_NAME)))
+        self._service_name_buf: bytearray = bytearray(b'air_unit_01' + b'\x00' * (128 - 11))
 
         # Resolution list for VIDEO tab combo
         self._resolution_labels = [
@@ -90,8 +102,10 @@ class ImGuiUI:
         self._rebinding_action: Optional[str] = None
         # Current key bindings (action -> display label)
         self._key_bindings: dict = {
-            "forward": "W", "backward": "S", "left": "A", "right": "D",
-            "sprint": "Shift", "special_1": "E", "special_2": "F",
+            "toggle_ready": "F5",
+            "toggle_hud": "Tab",
+            "toggle_console": "`",
+            "toggle_menu": "Esc",
         }
 
         # Performance history ring buffers (120 samples ~ 1-2 seconds at 120fps)
@@ -243,12 +257,13 @@ class ImGuiUI:
         # Modal popup
         imgui.open_popup("CONFIRM CHANGE")
         dialog_w = 450
-        dialog_h = 220
+        dialog_h = 260
         imgui.set_next_window_size(dialog_w, dialog_h, imgui.ALWAYS)
 
         # Center the popup
-        center_x = (Config.RENDER_WIDTH - dialog_w) / 2
-        center_y = (Config.RENDER_HEIGHT - dialog_h) / 2
+        disp_w, disp_h = imgui.get_io().display_size
+        center_x = (disp_w - dialog_w) / 2
+        center_y = (disp_h - dialog_h) / 2
         imgui.set_next_window_position(center_x, center_y, imgui.ALWAYS)
 
         if imgui.begin_popup_modal("CONFIRM CHANGE", None, imgui.WINDOW_NO_RESIZE | imgui.WINDOW_NO_MOVE)[0]:
@@ -484,11 +499,17 @@ class ImGuiUI:
         if stats:
             bytes_now = stats.get("bytes_received", 0)
             t_now = time.time()
-            dt = t_now - self._last_bw_time
-            if dt >= 0.5:
-                self._bandwidth_kbps = (bytes_now - self._last_bytes) * 8 / dt / 1000
+            # 重连后计数器重置，检测到回退则重新开始计算
+            if bytes_now < self._last_bytes:
                 self._last_bytes = bytes_now
                 self._last_bw_time = t_now
+                self._bandwidth_kbps = 0.0
+            else:
+                dt = t_now - self._last_bw_time
+                if dt >= 0.5:
+                    self._bandwidth_kbps = (bytes_now - self._last_bytes) * 8 / dt / 1000
+                    self._last_bytes = bytes_now
+                    self._last_bw_time = t_now
 
         # Delta time for frame-rate-independent animations
         now = time.time()
@@ -498,10 +519,11 @@ class ImGuiUI:
         self._update_menu_animation()
         imgui.push_style_var(imgui.STYLE_ALPHA, self.menu_alpha)
 
-        menu_width = 800
-        menu_height = 650
-        center_x = (Config.RENDER_WIDTH - menu_width) / 2
-        center_y = (Config.RENDER_HEIGHT - menu_height) / 2
+        menu_width = 960
+        menu_height = 750
+        disp_w, disp_h = imgui.get_io().display_size
+        center_x = (disp_w - menu_width) / 2
+        center_y = (disp_h - menu_height) / 2
 
         imgui.set_next_window_position(center_x, center_y, imgui.ALWAYS)
         imgui.set_next_window_size(menu_width, menu_height, imgui.ALWAYS)
@@ -540,7 +562,7 @@ class ImGuiUI:
                 imgui.set_scroll_y(self._content_scroll_y)
 
             if self._active_tab == 0:
-                self._draw_connection_tab(session_state, callbacks, stats or {})
+                self._draw_connection_tab(session_state, callbacks, stats or {}, live_status or {})
             elif self._active_tab == 1:
                 self._draw_parameters_tab(params, on_param_change)
             elif self._active_tab == 2:
@@ -697,7 +719,9 @@ class ImGuiUI:
     # CONNECTION tab
     # -------------------------------------------------------------------------
 
-    def _draw_connection_tab(self, session_state: str, callbacks: Dict, stats: Dict) -> None:
+    def _draw_connection_tab(self, session_state: str, callbacks: Dict, stats: Dict, live_status: Dict = None) -> None:
+        if live_status is None:
+            live_status = {}
         self._draw_section_title("CONNECTION STATUS")
 
         # --- State indicator row ---
@@ -741,8 +765,8 @@ class ImGuiUI:
         imgui.separator()
         imgui.spacing()
 
-        latency = stats.get("latency_ms", 0.0)
-        loss = stats.get("packet_loss_rate", 0.0)
+        latency = live_status.get("latency_ms", 0.0)
+        loss = live_status.get("packet_loss_rate", 0.0)
         bw = self._bandwidth_kbps
 
         if session_state == "connected":
@@ -759,7 +783,7 @@ class ImGuiUI:
             self._pop_font(pushed_body)
             imgui.same_line(160)
             pushed_mono = self._push_font(self.font_mono)
-            imgui.text_colored(f"{latency:.1f} ms", *lat_color)
+            imgui.text_colored(f"{latency:.2f} ms", *lat_color)
             self._pop_font(pushed_mono)
 
             # Packet loss with color coding
@@ -800,66 +824,111 @@ class ImGuiUI:
 
         if devices:
             pushed = self._push_font(self.font_mono)
-            row_h = imgui.get_text_line_height() + 8  # text + padding
-            list_h = min(row_h * len(devices) + 8, 120)
-            imgui.begin_child("##device_list", 0, list_h, border=True,
+            text_h = imgui.get_text_line_height()
+            row_pad_y = 6
+            row_h = text_h + row_pad_y * 2
+            btn_w = 90
+            btn_h = text_h + 10
+            list_pad = 6
+            list_h = min(row_h * len(devices) + list_pad * 2, 220)
+
+            # 手绘圆角边框（不用 begin_child border=True）
+            list_origin = imgui.get_cursor_screen_pos()
+            parent_dl = imgui.get_window_draw_list()
+            content_w = imgui.get_content_region_available_width()
+
+            # 圆角外框
+            border_color = imgui.get_color_u32_rgba(0.25, 0.25, 0.3, 0.6)
+            parent_dl.add_rect(
+                list_origin[0], list_origin[1],
+                list_origin[0] + content_w, list_origin[1] + list_h,
+                border_color, rounding=6.0)
+
+            imgui.begin_child("##device_list", content_w, list_h, border=False,
                               flags=imgui.WINDOW_NO_SCROLLBAR)
+            imgui.set_cursor_pos((list_pad, list_pad))
 
             draw_list = imgui.get_window_draw_list()
-            content_w = imgui.get_content_region_available_width()
+            inner_w = content_w - list_pad * 2
 
             for idx, device in enumerate(devices):
                 device_name = device.get("name", "Unknown")
                 device_ip = device.get("ip", "0.0.0.0")
                 device_port = device.get("port", 0)
-                is_selected = device.get("selected", False)
 
-                cursor_pos = imgui.get_cursor_screen_pos()
+                row_origin = imgui.get_cursor_screen_pos()
 
+                # Hover 检测：用窄的 invisible_button（不覆盖按钮区域）
+                row_interact_w = inner_w - btn_w - 12
                 imgui.push_id(f"dev_{idx}")
-                clicked = imgui.invisible_button(f"##dev{idx}", content_w, row_h)
-                hovered = imgui.is_item_hovered()
-                imgui.pop_id()
+                imgui.invisible_button(f"##devrow{idx}", row_interact_w, row_h)
+                row_hovered = imgui.is_item_hovered()
 
                 # Animate hover alpha
                 hover_key = f"dev_{idx}"
                 cur_alpha = self._device_hover_alpha.get(hover_key, 0.0)
-                target_alpha = 1.0 if hovered else 0.0
+                target_alpha = 1.0 if row_hovered else 0.0
                 alpha_diff = target_alpha - cur_alpha
                 if abs(alpha_diff) > 0.01:
                     ht = 1.0 - math.exp(-self._dt / 0.06)
-                    cur_alpha = cur_alpha + alpha_diff * ht
+                    cur_alpha += alpha_diff * ht
                 else:
                     cur_alpha = target_alpha
                 self._device_hover_alpha[hover_key] = cur_alpha
 
-                # Draw hover/selected background with rounded corners
-                pad_x = 4
-                rounding = 4.0
-                if cur_alpha > 0.01 or is_selected:
-                    bg_alpha = max(cur_alpha * 0.5, 0.35 if is_selected else 0.0)
-                    bg_color = imgui.get_color_u32_rgba(0.12, 0.12, 0.18, bg_alpha)
+                # 行背景（圆角）
+                if cur_alpha > 0.01:
+                    bg_color = imgui.get_color_u32_rgba(0.15, 0.18, 0.22, cur_alpha * 0.6)
                     draw_list.add_rect_filled(
-                        cursor_pos[0] + pad_x, cursor_pos[1],
-                        cursor_pos[0] + content_w - pad_x, cursor_pos[1] + row_h,
-                        bg_color, rounding)
+                        row_origin[0], row_origin[1],
+                        row_origin[0] + inner_w, row_origin[1] + row_h,
+                        bg_color, rounding=4.0)
 
-                # Draw device name text
-                text_x = cursor_pos[0] + pad_x + 6
-                text_y = cursor_pos[1] + (row_h - imgui.get_text_line_height()) * 0.5
-                name_color = imgui.get_color_u32_rgba(*Theme.ACCENT_PRIMARY) if is_selected \
-                    else imgui.get_color_u32_rgba(*Theme.TEXT_PRIMARY)
-                draw_list.add_text(text_x, text_y, name_color, device_name)
+                # 设备名（截断 mDNS 后缀）
+                short_name = device_name.split("._")[0] if "._" in device_name else device_name
+                text_y = row_origin[1] + (row_h - text_h) * 0.5
+                name_color = imgui.get_color_u32_rgba(*Theme.TEXT_PRIMARY)
+                draw_list.add_text(row_origin[0] + 8, text_y, name_color, short_name)
 
-                # Draw IP:Port on right side
+                # IP:Port
                 addr_text = f"{device_ip}:{device_port}"
                 addr_w = imgui.calc_text_size(addr_text).x
-                addr_x = cursor_pos[0] + content_w - pad_x - addr_w - 6
+                addr_x = row_origin[0] + inner_w - btn_w - 16 - addr_w
                 addr_color = imgui.get_color_u32_rgba(*Theme.TEXT_SECONDARY)
                 draw_list.add_text(addr_x, text_y, addr_color, addr_text)
 
-                if clicked and "select_device" in callbacks:
-                    callbacks["select_device"](idx)
+                # CONNECT 按钮（手绘，精确控制文字位置）
+                imgui.same_line(0, 0)
+                btn_x = row_origin[0] + inner_w - btn_w - 4
+                btn_y_pos = row_origin[1] + (row_h - btn_h) * 0.5
+                imgui.set_cursor_screen_pos((btn_x, btn_y_pos))
+
+                # invisible_button 作为点击区域
+                btn_clicked = imgui.invisible_button(f"##connect_btn{idx}", btn_w, btn_h)
+                btn_hovered = imgui.is_item_hovered()
+
+                # 手绘按钮背景 + 文字
+                draw_list = imgui.get_window_draw_list()
+                btn_color = (0.0, 0.7, 0.85, 0.9) if btn_hovered else (0.0, 0.55, 0.65, 0.8)
+                btn_color_u32 = imgui.get_color_u32_rgba(*btn_color)
+                draw_list.add_rect_filled(btn_x, btn_y_pos, btn_x + btn_w, btn_y_pos + btn_h,
+                                          btn_color_u32, rounding=4.0)
+
+                # 文字居中（上移 1px 补偿基线）
+                text_h = imgui.get_text_line_height()
+                text_x = btn_x + (btn_w - imgui.calc_text_size("CONNECT")[0]) * 0.5
+                text_y = btn_y_pos + (btn_h - text_h) * 0.5
+                text_color = imgui.get_color_u32_rgba(1.0, 1.0, 1.0, 1.0)
+                draw_list.add_text(text_x, text_y, text_color, "CONNECT")
+
+                if btn_clicked:
+                    if "select_device" in callbacks:
+                        callbacks["select_device"](idx)
+
+                imgui.pop_id()
+
+                # 下一行光标
+                imgui.set_cursor_screen_pos((row_origin[0], row_origin[1] + row_h))
 
             imgui.end_child()
             self._pop_font(pushed)
@@ -872,7 +941,7 @@ class ImGuiUI:
 
         # SCAN button
         pushed_btn = self._push_font(self.font_body)
-        if imgui.button("SCAN", width=100, height=28):
+        if imgui.button("SCAN", width=100, height=36):
             if "scan_devices" in callbacks:
                 callbacks["scan_devices"]()
         self._pop_font(pushed_btn)
@@ -881,15 +950,15 @@ class ImGuiUI:
         imgui.separator()
         imgui.spacing()
 
-        # --- Service name input (manual entry) ---
+        # --- Device name input (manual entry) ---
         pushed = self._push_font(self.font_body)
-        imgui.text_colored("OR ENTER SERVICE NAME MANUALLY", *Theme.TEXT_SECONDARY)
+        imgui.text_colored("OR ENTER DEVICE NAME MANUALLY (e.g. air_unit_01)", *Theme.TEXT_SECONDARY)
         self._pop_font(pushed)
         imgui.spacing()
 
         pushed = self._push_font(self.font_mono)
         imgui.set_next_item_width(400)
-        changed, new_name = imgui.input_text("##svcname", self._service_name_buf.rstrip(b'\x00').decode(), 128)
+        changed, new_name = imgui.input_text("##device_name", self._service_name_buf.rstrip(b'\x00').decode(), 128)
         if changed:
             encoded = new_name.encode()[:127]
             self._service_name_buf = bytearray(encoded + b'\x00' * (128 - len(encoded)))
@@ -913,9 +982,9 @@ class ImGuiUI:
         if connect_disabled:
             imgui.push_style_var(imgui.STYLE_ALPHA, self.menu_alpha * 0.4)
         if imgui.button("CONNECT", width=150, height=36):
-            if is_idle and "connect" in callbacks:
+            if is_idle and "connect_by_name" in callbacks:
                 svc = self._service_name_buf.rstrip(b'\x00').decode().strip()
-                callbacks["connect"](svc or Config.MDNS_SERVICE_NAME)
+                callbacks["connect_by_name"](svc)
         if connect_disabled:
             imgui.pop_style_var()
 
@@ -1002,7 +1071,7 @@ class ImGuiUI:
                 on_revert=on_change,
             )
 
-        resolution = params.get("resolution", 5)
+        resolution = params.get("resolution", 2)
         changed, new_val = self._animated_combo("Resolution", resolution, self._resolution_labels)
         if changed and new_val != resolution and on_change:
             old_label = self._resolution_labels[resolution].split(" ")[0]
@@ -1028,6 +1097,27 @@ class ImGuiUI:
                 on_confirm=on_change,
                 on_revert=on_change,
             )
+
+        # Display selector (only in fullscreen modes)
+        if window_mode != 0:
+            try:
+                num_displays = pygame.display.get_num_displays()
+                if num_displays > 1:
+                    desk_sizes = pygame.display.get_desktop_sizes()
+                    display_labels = ["AUTO (Current)"]
+                    for i in range(num_displays):
+                        if i < len(desk_sizes):
+                            dw, dh = desk_sizes[i]
+                            display_labels.append(f"Display {i+1}  ({dw}x{dh})")
+                        else:
+                            display_labels.append(f"Display {i+1}")
+                    current_display = params.get("fullscreen_display", -1)
+                    combo_idx = current_display + 1
+                    changed_d, new_d = self._animated_combo("Output Display", combo_idx, display_labels)
+                    if changed_d and new_d != combo_idx and on_change:
+                        on_change("fullscreen_display", new_d - 1)
+            except Exception:
+                pass
 
         imgui.spacing()
         self._draw_subsection("LIVE STREAM STATS")
@@ -1220,9 +1310,9 @@ class ImGuiUI:
         latency_avg = live_status.get("latency_ms", 0.0)
         latency_max = stats.get("latency_max_ms", 0.0)
 
-        self._draw_kv_row("Min RTT", f"{latency_min:.1f} ms")
-        self._draw_kv_row("Avg RTT", f"{latency_avg:.1f} ms", accent=True)
-        self._draw_kv_row("Max RTT", f"{latency_max:.1f} ms")
+        self._draw_kv_row("Min RTT", f"{latency_min:.2f} ms")
+        self._draw_kv_row("Avg RTT", f"{latency_avg:.2f} ms", accent=True)
+        self._draw_kv_row("Max RTT", f"{latency_max:.2f} ms")
 
         imgui.spacing()
 
@@ -1267,18 +1357,14 @@ class ImGuiUI:
         pushed = self._push_font(self.font_body)
 
         # --- Keyboard mapping section ---
-        self._draw_subsection("KEYBOARD MAPPING")
+        self._draw_subsection("KEY BINDINGS")
         self._pop_font(pushed)
 
-        # Rebindable key rows
         binding_labels = {
-            "forward": "Forward",
-            "backward": "Backward",
-            "left": "Left",
-            "right": "Right",
-            "sprint": "Sprint",
-            "special_1": "Special 1",
-            "special_2": "Special 2",
+            "toggle_ready": "Toggle Ready",
+            "toggle_hud": "Toggle HUD",
+            "toggle_console": "Console",
+            "toggle_menu": "Menu",
         }
 
         for action, display_name in binding_labels.items():
@@ -1287,7 +1373,6 @@ class ImGuiUI:
             self._pop_font(pushed_body)
             imgui.same_line(160)
 
-            # Key button: shows current binding or "Press any key..."
             is_rebinding = (self._rebinding_action == action)
             key_label = self._key_bindings.get(action, "?")
 
@@ -1311,37 +1396,15 @@ class ImGuiUI:
                 imgui.pop_style_color(3)
 
         imgui.spacing()
-
-        # Preset selection
-        pushed = self._push_font(self.font_body)
-        imgui.text_colored("PRESET", *Theme.TEXT_SECONDARY)
-        self._pop_font(pushed)
-        imgui.same_line(160)
-        preset_idx = params.get("control_preset", 0)
-        changed, new_preset = self._animated_combo("##preset", preset_idx, ["Default (WASD)", "Arrow Keys", "Custom"])
-        if changed and on_change:
-            on_change("control_preset", new_preset)
-            if new_preset == 0:
-                self._key_bindings = {
-                    "forward": "W", "backward": "S", "left": "A", "right": "D",
-                    "sprint": "Shift", "special_1": "E", "special_2": "F",
-                }
-            elif new_preset == 1:
-                self._key_bindings = {
-                    "forward": "Up", "backward": "Down", "left": "Left", "right": "Right",
-                    "sprint": "Space", "special_1": "Z", "special_2": "X",
-                }
-
-        imgui.spacing()
         pushed = self._push_font(self.font_body)
         if imgui.button("Reset to Default", 150, 32):
             self._key_bindings = {
-                "forward": "W", "backward": "S", "left": "A", "right": "D",
-                "sprint": "Shift", "special_1": "E", "special_2": "F",
+                "toggle_ready": "F5",
+                "toggle_hud": "Tab",
+                "toggle_console": "`",
+                "toggle_menu": "Esc",
             }
             self._rebinding_action = None
-            if on_change:
-                on_change("control_preset", 0)
         imgui.same_line()
         if imgui.button("Save Preset", 150, 32):
             if on_change:
@@ -1481,7 +1544,7 @@ class ImGuiUI:
             imgui.plot_lines(
                 f"##latency_graph",
                 lat_arr,
-                overlay_text=f"Latency: {current_lat:.1f} ms",
+                overlay_text=f"Latency: {current_lat:.2f} ms",
                 scale_min=0.0,
                 scale_max=max(max(lat_arr) * 1.2, 1.0),
                 graph_size=(graph_w, graph_h),
@@ -1502,7 +1565,7 @@ class ImGuiUI:
 
         latency_accent = latency > 0 and latency < 50
         loss_bad = loss > 0.01
-        self._draw_kv_row("Latency", f"{latency:.1f} ms", accent=latency_accent)
+        self._draw_kv_row("Latency", f"{latency:.2f} ms", accent=latency_accent)
         self._draw_kv_row("Packet Loss",
                           f"{loss:.2%}",
                           accent=loss_bad)
@@ -1603,8 +1666,9 @@ class ImGuiUI:
 
     def draw_no_signal(self):
         """Draw NO SIGNAL overlay with grey background and live clock."""
-        w = float(Config.RENDER_WIDTH)
-        h = float(Config.RENDER_HEIGHT)
+        disp = imgui.get_io().display_size
+        w = float(disp[0])
+        h = float(disp[1])
         draw_list = imgui.get_background_draw_list()
 
         # Dark grey background
@@ -1655,16 +1719,24 @@ class ImGuiUI:
     # -------------------------------------------------------------------------
 
     def draw_status_bar(self, status: Dict) -> None:
-        bar_w = 220
-        bar_h = 120
+        # HUD alpha 控制（与 input_hud 共享 _hud_alpha）
+        if self._hud_alpha < 0.01:
+            return
+
+        bar_w = 260
+        bar_h = 145
+        disp_w, disp_h = imgui.get_io().display_size
+        # 右侧滑出：alpha=1 时正常位置，alpha→0 时滑出右侧
+        offset_x = (1.0 - self._hud_alpha) * (bar_w + 16)
         imgui.set_next_window_position(
-            Config.RENDER_WIDTH - bar_w - 16,
-            Config.RENDER_HEIGHT - bar_h - 16,
+            disp_w - bar_w - 16 + offset_x,
+            disp_h - bar_h - 16,
             imgui.ALWAYS
         )
         imgui.set_next_window_size(bar_w, bar_h, imgui.ALWAYS)
 
-        imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.06, 0.06, 0.09, 0.85)
+        a = self._hud_alpha
+        imgui.push_style_color(imgui.COLOR_WINDOW_BACKGROUND, 0.06, 0.06, 0.09, 0.85 * a)
         expanded, _ = imgui.begin(
             "##status", False,
             imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_MOVE |
@@ -1678,7 +1750,7 @@ class ImGuiUI:
             frames = status.get("frames_received", 0)
 
             self._draw_label_value("FPS", f"{fps:.1f}", accent=True, right_align=True)
-            self._draw_label_value("LATENCY", f"{latency:.1f} ms", right_align=True)
+            self._draw_label_value("LATENCY", f"{latency:.2f} ms", right_align=True)
             self._draw_label_value("LOSS", f"{loss:.2%}",
                                    accent=(loss > 0.01), right_align=True)
             self._draw_label_value("FRAMES", f"{frames}", right_align=True)
@@ -1687,8 +1759,407 @@ class ImGuiUI:
         imgui.pop_style_color()
 
     # -------------------------------------------------------------------------
-    # Helpers
+    # READY indicator (bottom-left, always visible)
     # -------------------------------------------------------------------------
+
+    def draw_ready_indicator(self):
+        """左下角 READY/NOT READY 指示器 — 阻尼弹簧缩放 + 呼吸灯"""
+        now = time.time()
+
+        # 检测状态切换，记录切换时刻
+        if self.is_ready != self._ready_anim_dir:
+            self._ready_anim_dir = self.is_ready
+            self._ready_toggle_time = now
+
+        # 阻尼弹簧: scale = 1 + A * exp(-zeta * t) * sin(omega * t)
+        t = now - self._ready_toggle_time
+        amp = 0.7
+        zeta = 5.0
+        omega = 14.0
+        if t < 2.0 and self._ready_toggle_time > 0:
+            spring = amp * math.exp(-zeta * t) * math.sin(omega * t)
+        else:
+            spring = 0.0
+        scale = 1.0 + spring
+
+        disp_w, disp_h = imgui.get_io().display_size
+        draw_list = imgui.get_foreground_draw_list()
+
+        # 文字高度用于垂直居中
+        text_h = imgui.get_text_line_height()
+
+        # 基础参数
+        base_radius = 8.0
+        radius = base_radius * scale
+        margin_x = 20.0
+        margin_y = 16.0  # 底边距
+        cx = margin_x + base_radius
+        cy = disp_h - margin_y - text_h / 2  # 圆点垂直居中于文字行
+
+        if self.is_ready:
+            glow_alpha = 0.15 + 0.1 * (0.5 + 0.5 * math.sin(now * 2.0))
+            glow_col = imgui.get_color_u32_rgba(0.1, 0.95, 0.4, glow_alpha)
+            draw_list.add_circle_filled(cx, cy, radius * 2.2, glow_col)
+
+            dot_col = imgui.get_color_u32_rgba(0.1, 0.95, 0.4, 1.0)
+            draw_list.add_circle_filled(cx, cy, radius, dot_col)
+
+            text = "READY"
+            text_col = imgui.get_color_u32_rgba(0.1, 0.95, 0.4, 0.95)
+        else:
+            pulse = 0.3 + 0.7 * (0.5 + 0.5 * math.sin(now * 4.0))
+
+            glow_col = imgui.get_color_u32_rgba(0.8, 0.3, 0.2, pulse * 0.2)
+            draw_list.add_circle_filled(cx, cy, radius * 2.0, glow_col)
+
+            dot_col = imgui.get_color_u32_rgba(0.8, 0.3, 0.2, pulse)
+            draw_list.add_circle_filled(cx, cy, radius, dot_col)
+
+            text = "NOT READY  [F5]"
+            text_col = imgui.get_color_u32_rgba(0.7, 0.35, 0.25, 0.4 + pulse * 0.5)
+
+        # 文字：圆点右侧，垂直居中
+        text_x = cx + base_radius + 12
+        text_y = cy - text_h / 2
+        draw_list.add_text(text_x, text_y, text_col, text)
+
+    # ------------------------------------------------------------------
+    # Input HUD
+    # ------------------------------------------------------------------
+
+    _BIT_NAMES = {
+        0: "ESC", 1: "F1", 2: "F2", 3: "F3", 4: "F4", 6: "F6", 7: "F7",
+        8: "F8", 9: "F9", 10: "F10", 11: "F11", 12: "F12",
+        13: "`", 14: "1", 15: "2", 16: "3", 17: "4", 18: "5",
+        19: "6", 20: "7", 21: "8", 22: "9", 23: "0",
+        24: "-", 25: "=", 26: "BS", 27: "TAB",
+        28: "Q", 29: "W", 30: "E", 31: "R", 32: "T", 33: "Y",
+        34: "U", 35: "I", 36: "O", 37: "P", 38: "[", 39: "]",
+        40: "\\", 41: "CAPS", 42: "A", 43: "S", 44: "D", 45: "F",
+        46: "G", 47: "H", 48: "J", 49: "K", 50: "L", 51: ";",
+        52: "'", 53: "ENT", 54: "LSHF", 55: "Z", 56: "X", 57: "C",
+        58: "V", 59: "B", 60: "N", 61: "M", 62: ",", 63: ".",
+        64: "/", 65: "RSHF", 66: "LCTL", 67: "LALT",
+        68: "SPC", 69: "RALT", 70: "RCTL",
+    }
+
+    def draw_input_hud(self, keyboard_state: bytes, mouse_dx: int, mouse_dy: int,
+                       mouse_buttons: tuple, scroll_delta: int = 0,
+                       side_buttons: tuple = (False, False)):
+        """左侧居中 输入可视化 HUD（TAB 切换显隐）"""
+        now = time.time()
+        dt = min(now - getattr(self, '_hud_last_t', now), 0.1)
+        self._hud_last_t = now
+
+        # HUD alpha 动画（指数衰减）
+        target = 1.0 if self.show_hud else 0.0
+        diff = target - self._hud_alpha
+        if abs(diff) > 0.01:
+            t = 1.0 - math.exp(-dt / 0.12)
+            self._hud_alpha += diff * t
+        else:
+            self._hud_alpha = target
+        if self._hud_alpha < 0.01:
+            return
+
+        disp_w, disp_h = imgui.get_io().display_size
+        draw_list = imgui.get_foreground_draw_list()
+
+        # --- 面板布局 ---
+        panel_w = 320.0
+        margin = 16.0
+        pad = 16.0
+
+        title_h = 40.0
+        stick_size = 120.0
+        mouse_shape_h = stick_size
+        mouse_row_h = stick_size + 28.0
+        sep_h = 20.0
+        kbd_label_h = 24.0
+        kbd_tag_h = 24.0
+        kbd_gap_y = 5.0
+        kbd_max_rows = 3
+        kbd_area_h = kbd_tag_h * kbd_max_rows + kbd_gap_y * (kbd_max_rows - 1)
+
+        panel_h = title_h + mouse_row_h + sep_h + kbd_label_h + kbd_area_h + pad
+
+        # 水平滑出动画：alpha=1 时在 margin，alpha=0 时滑出屏幕左侧
+        px = margin - (1.0 - self._hud_alpha) * (panel_w + margin)
+        py = (disp_h - panel_h) / 2.0
+
+        # --- 背景 ---
+        a = self._hud_alpha
+        bg = imgui.get_color_u32_rgba(0.06, 0.06, 0.09, 0.78 * a)
+        draw_list.add_rect_filled(px, py, px + panel_w, py + panel_h, bg, 6.0)
+        border_col = imgui.get_color_u32_rgba(0.18, 0.20, 0.25, 0.5 * a)
+        draw_list.add_rect(px, py, px + panel_w, py + panel_h, border_col, 6.0)
+
+        # --- 标题 ---
+        title_col = imgui.get_color_u32_rgba(0.50, 0.52, 0.58, 1.0)
+        draw_list.add_text(px + pad, py + 10, title_col, "INPUT")
+
+        # --- 鼠标区域 ---
+        row_y = py + title_h
+
+        stick_x = px + pad
+        stick_y = row_y
+        self._draw_mouse_stick(draw_list, stick_x, stick_y, stick_size,
+                               mouse_dx, mouse_dy, dt)
+
+        btn_area_x = stick_x + stick_size + 80
+        btn_area_y = row_y
+        self._draw_mouse_buttons(draw_list, btn_area_x, btn_area_y,
+                                 mouse_buttons, mouse_shape_h,
+                                 scroll_delta, side_buttons)
+
+        # --- 分隔线 ---
+        sep_y = row_y + mouse_row_h + sep_h / 2
+        sep_col = imgui.get_color_u32_rgba(0.22, 0.24, 0.30, 0.4)
+        draw_list.add_line(px + pad, sep_y, px + panel_w - pad, sep_y, sep_col)
+
+        # --- 键盘区域 ---
+        kbd_y = sep_y + sep_h / 2 - 2
+        kbd_label_col = imgui.get_color_u32_rgba(0.50, 0.52, 0.58, 1.0)
+        draw_list.add_text(px + pad, kbd_y, kbd_label_col, "KEYBOARD")
+
+        tags_y = kbd_y + kbd_label_h + 2
+        tags_x = px + pad
+        tags_max_x = px + panel_w - pad
+        tags_max_y = py + panel_h
+
+        draw_list.push_clip_rect(tags_x, tags_y, tags_max_x, tags_max_y, True)
+        self._draw_keyboard_tags(draw_list, tags_x, tags_y, tags_max_x,
+                                 keyboard_state, kbd_max_rows)
+        draw_list.pop_clip_rect()
+
+    def _draw_mouse_stick(self, draw_list, x, y, size, dx, dy, dt):
+        """鼠标摇杆 — 圆角矩形 + 虚线十字 + 圆点"""
+        half = size / 2.0
+        cx = x + half
+        cy = y + half
+
+        bg = imgui.get_color_u32_rgba(0.04, 0.04, 0.06, 0.9)
+        draw_list.add_rect_filled(x, y, x + size, y + size, bg, 5.0)
+        border = imgui.get_color_u32_rgba(0.22, 0.24, 0.30, 0.8)
+        draw_list.add_rect(x, y, x + size, y + size, border, 5.0)
+
+        dash_col = imgui.get_color_u32_rgba(0.35, 0.38, 0.45, 0.35)
+        self._draw_dashed_line(draw_list, x + 6, cy, x + size - 6, cy, dash_col)
+        self._draw_dashed_line(draw_list, cx, y + 6, cx, y + size - 6, dash_col)
+
+        max_speed = 25.0
+        target_x = max(-1.0, min(1.0, dx / max_speed))
+        target_y = max(-1.0, min(1.0, dy / max_speed))
+
+        if dx != 0 or dy != 0:
+            t = 1.0 - math.exp(-dt / 0.04)
+            self._stick_x += (target_x - self._stick_x) * t
+            self._stick_y += (target_y - self._stick_y) * t
+        else:
+            decay = math.exp(-dt / 0.06)
+            self._stick_x *= decay
+            self._stick_y *= decay
+
+        if abs(self._stick_x) < 0.01:
+            self._stick_x = 0.0
+        if abs(self._stick_y) < 0.01:
+            self._stick_y = 0.0
+
+        dot_x = cx + self._stick_x * (half - 8)
+        dot_y = cy + self._stick_y * (half - 8)
+
+        if abs(self._stick_x) > 0.02 or abs(self._stick_y) > 0.02:
+            trail_col = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 0.12)
+            draw_list.add_line(cx, cy, dot_x, dot_y, trail_col, 2.0)
+
+        intensity = min(1.0, math.sqrt(self._stick_x**2 + self._stick_y**2))
+        if intensity > 0.05:
+            glow = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, intensity * 0.18)
+            draw_list.add_circle_filled(dot_x, dot_y, 9.0, glow)
+
+        dot_col = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 0.9)
+        draw_list.add_circle_filled(dot_x, dot_y, 5.5, dot_col)
+
+        # 速度数值 — 摇杆正下方
+        val_y = y + size + 6
+        val_text = f"{self._stick_x:+.2f} / {self._stick_y:+.2f}"
+        dim = imgui.get_color_u32_rgba(0.40, 0.42, 0.48, 0.7)
+        tw = imgui.calc_text_size(val_text).x
+        draw_list.add_text(x + (size - tw) / 2, val_y, dim, val_text)
+
+    def _draw_mouse_buttons(self, draw_list, x, y, buttons, area_h,
+                            scroll_delta=0, side_buttons=(False, False)):
+        """鼠标按键 — 模拟鼠标外形 + 滚轮方向 + 侧键"""
+        mouse_w = 72.0
+        mouse_h = area_h - 22.0
+        r = 10.0
+
+        outline_col = imgui.get_color_u32_rgba(0.22, 0.24, 0.30, 0.6)
+        inner_bg = imgui.get_color_u32_rgba(0.05, 0.05, 0.07, 0.8)
+        draw_list.add_rect_filled(x, y, x + mouse_w, y + mouse_h, inner_bg, r)
+        draw_list.add_rect(x, y, x + mouse_w, y + mouse_h, outline_col, r)
+
+        # LMB(左半) | RMB(右半) — 上部 40%
+        btn_h = mouse_h * 0.40
+        mid_x = x + mouse_w / 2
+
+        div_col = imgui.get_color_u32_rgba(0.25, 0.28, 0.35, 0.5)
+        draw_list.add_line(mid_x, y + 6, mid_x, y + btn_h, div_col)
+
+        # LMB
+        lmb = buttons[0] if len(buttons) > 0 else False
+        if lmb:
+            fill = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 0.7)
+            draw_list.add_rect_filled(x + 3, y + 3, mid_x - 1, y + btn_h, fill, 7.0)
+        lc = imgui.get_color_u32_rgba(0.9, 0.95, 1.0, 0.9) if lmb \
+            else imgui.get_color_u32_rgba(0.45, 0.48, 0.55, 0.8)
+        ltw = imgui.calc_text_size("L").x
+        draw_list.add_text(x + (mouse_w / 2 - ltw) / 2, y + btn_h / 2 - 8, lc, "L")
+
+        # RMB
+        rmb = buttons[2] if len(buttons) > 2 else False
+        if rmb:
+            fill = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 0.7)
+            draw_list.add_rect_filled(mid_x + 1, y + 3, x + mouse_w - 3,
+                                      y + btn_h, fill, 7.0)
+        rc = imgui.get_color_u32_rgba(0.9, 0.95, 1.0, 0.9) if rmb \
+            else imgui.get_color_u32_rgba(0.45, 0.48, 0.55, 0.8)
+        rtw = imgui.calc_text_size("R").x
+        draw_list.add_text(mid_x + (mouse_w / 2 - rtw) / 2, y + btn_h / 2 - 8, rc, "R")
+
+        # MMB 滚轮 + 方向指示
+        wheel_y = y + btn_h + 6
+        wheel_h = 22.0
+        wheel_w = 14.0
+        wheel_x = mid_x - wheel_w / 2
+        mmb = buttons[1] if len(buttons) > 1 else False
+        if mmb:
+            wfill = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 0.7)
+        else:
+            wfill = imgui.get_color_u32_rgba(0.20, 0.22, 0.28, 0.8)
+        draw_list.add_rect_filled(wheel_x, wheel_y, wheel_x + wheel_w,
+                                  wheel_y + wheel_h, wfill, 4.0)
+        wborder = imgui.get_color_u32_rgba(0.30, 0.33, 0.40, 0.6)
+        draw_list.add_rect(wheel_x, wheel_y, wheel_x + wheel_w,
+                           wheel_y + wheel_h, wborder, 4.0)
+
+        # 滚轮方向箭头
+        arrow_col = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 0.9)
+        if scroll_delta > 0:
+            # 上箭头
+            ay = wheel_y - 6
+            draw_list.add_triangle_filled(
+                mid_x, ay - 4, mid_x - 5, ay + 3, mid_x + 5, ay + 3, arrow_col)
+        elif scroll_delta < 0:
+            # 下箭头
+            ay = wheel_y + wheel_h + 6
+            draw_list.add_triangle_filled(
+                mid_x, ay + 4, mid_x - 5, ay - 3, mid_x + 5, ay - 3, arrow_col)
+
+        # 侧键 — 鼠标左侧两个小按钮
+        side_w = 10.0
+        side_h = 16.0
+        side_gap = 4.0
+        side_x = x - side_w - 4
+        side_y0 = y + mouse_h * 0.35
+        for i, pressed in enumerate(side_buttons):
+            sy = side_y0 + i * (side_h + side_gap)
+            if pressed:
+                sf = imgui.get_color_u32_rgba(0.0, 0.85, 1.0, 0.7)
+            else:
+                sf = imgui.get_color_u32_rgba(0.15, 0.16, 0.20, 0.8)
+            draw_list.add_rect_filled(side_x, sy, side_x + side_w, sy + side_h, sf, 3.0)
+            sb = imgui.get_color_u32_rgba(0.25, 0.28, 0.35, 0.6)
+            draw_list.add_rect(side_x, sy, side_x + side_w, sy + side_h, sb, 3.0)
+            # 标签 M4/M5 — 垂直居中对齐
+            label = f"M{i + 4}"
+            lc2 = imgui.get_color_u32_rgba(0.40, 0.42, 0.48, 0.7)
+            lw2 = imgui.calc_text_size(label).x
+            lh2 = imgui.calc_text_size(label).y
+            draw_list.add_text(side_x - lw2 - 3, sy + (side_h - lh2) / 2, lc2, label)
+
+        # MOUSE 标签 — 鼠标外形下方
+        label_col = imgui.get_color_u32_rgba(0.40, 0.42, 0.48, 0.7)
+        label = "MOUSE"
+        lw = imgui.calc_text_size(label).x
+        draw_list.add_text(x + (mouse_w - lw) / 2, y + mouse_h + 4, label_col, label)
+
+    def _draw_keyboard_tags(self, draw_list, start_x, start_y, max_x,
+                            keyboard_state: bytes, max_rows: int = 2):
+        """键盘按键 tags — 流式布局，限制行数，小号字体"""
+        pressed = []
+        for byte_idx, byte_val in enumerate(keyboard_state):
+            if byte_val == 0:
+                continue
+            for bit in range(8):
+                if byte_val & (1 << bit):
+                    bit_index = byte_idx * 8 + bit
+                    name = self._BIT_NAMES.get(bit_index)
+                    if name:
+                        pressed.append(name)
+
+        pushed = self._push_font(self.font_body)
+
+        if not pressed:
+            dim = imgui.get_color_u32_rgba(0.35, 0.38, 0.42, 0.5)
+            draw_list.add_text(start_x, start_y + 2, dim, "---")
+            self._pop_font(pushed)
+            return
+
+        tag_h = 22.0
+        pad_x = 7.0
+        gap_x = 4.0
+        gap_y = 4.0
+        x_cursor = start_x
+        y_cursor = start_y
+        row = 0
+
+        for name in pressed:
+            tw = imgui.calc_text_size(name).x
+            tag_w = tw + pad_x * 2
+
+            if x_cursor + tag_w > max_x and x_cursor > start_x:
+                row += 1
+                if row >= max_rows:
+                    more = imgui.get_color_u32_rgba(0.50, 0.52, 0.58, 0.8)
+                    draw_list.add_text(x_cursor, y_cursor + 3, more, "...")
+                    self._pop_font(pushed)
+                    return
+                x_cursor = start_x
+                y_cursor += tag_h + gap_y
+
+            fill = imgui.get_color_u32_rgba(0.0, 0.75, 0.95, 0.85)
+            draw_list.add_rect_filled(x_cursor, y_cursor,
+                                      x_cursor + tag_w, y_cursor + tag_h,
+                                      fill, 3.0)
+            text_col = imgui.get_color_u32_rgba(0.02, 0.05, 0.08, 1.0)
+            th = imgui.calc_text_size(name).y
+            draw_list.add_text(x_cursor + pad_x, y_cursor + (tag_h - th) / 2,
+                               text_col, name)
+
+            x_cursor += tag_w + gap_x
+
+        self._pop_font(pushed)
+
+    @staticmethod
+    def _draw_dashed_line(draw_list, x0, y0, x1, y1, color, dash=4.0, gap=3.0):
+        """绘制虚线"""
+        dx = x1 - x0
+        dy = y1 - y0
+        length = math.sqrt(dx * dx + dy * dy)
+        if length < 1.0:
+            return
+        nx = dx / length
+        ny = dy / length
+        pos = 0.0
+        while pos < length:
+            end = min(pos + dash, length)
+            draw_list.add_line(
+                x0 + nx * pos, y0 + ny * pos,
+                x0 + nx * end, y0 + ny * end,
+                color, 1.0
+            )
+            pos = end + gap
 
     def on_key_captured(self, pygame_key: int, key_name: str):
         """Called by input handler when a key is captured during rebinding."""

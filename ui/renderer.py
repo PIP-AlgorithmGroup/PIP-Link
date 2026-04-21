@@ -19,8 +19,15 @@ class VideoRenderer:
         self.texture_initialized = False
 
     def init_texture(self):
-        """Initialize texture"""
+        """Initialize texture (cleans up old texture if any)"""
+        if self.texture_id is not None:
+            try:
+                glDeleteTextures([self.texture_id])
+            except Exception:
+                pass
         self.texture_id = glGenTextures(1)
+        self.texture_initialized = False
+        self.frame_data = None
         glBindTexture(GL_TEXTURE_2D, self.texture_id)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
@@ -55,13 +62,13 @@ class VideoRenderer:
 
         # Draw fullscreen quad
         glBegin(GL_QUADS)
-        glTexCoord2f(0, 0)
-        glVertex3f(-1, -1, 0)
-        glTexCoord2f(1, 0)
-        glVertex3f(1, -1, 0)
-        glTexCoord2f(1, 1)
-        glVertex3f(1, 1, 0)
         glTexCoord2f(0, 1)
+        glVertex3f(-1, -1, 0)
+        glTexCoord2f(1, 1)
+        glVertex3f(1, -1, 0)
+        glTexCoord2f(1, 0)
+        glVertex3f(1, 1, 0)
+        glTexCoord2f(0, 0)
         glVertex3f(-1, 1, 0)
         glEnd()
 

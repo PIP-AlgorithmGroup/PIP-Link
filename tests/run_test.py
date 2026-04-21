@@ -18,12 +18,12 @@ def run_test():
     project_root = Path(__file__).parent.parent
     os.chdir(project_root)
 
-    print("\n[1/3] 启动机载端模拟器...")
-    print("      运行: python tests/air_unit_simulator.py --duration 120")
+    print("\n[1/3] 启动机载端服务器...")
+    print("      运行: python air_unit_server.py --verbose")
 
-    # 启动模拟器（120 秒）
+    # 启动服务器
     simulator_process = subprocess.Popen(
-        [sys.executable, "tests/air_unit_simulator.py", "--duration", "120"],
+        [sys.executable, "air_unit_server.py", "--verbose"],
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True
@@ -32,7 +32,7 @@ def run_test():
     # 等待模拟器启动
     time.sleep(2)
 
-    print("✓ 机载端模拟器已启动")
+    print("✓ 机载端服务器已启动")
     print("\n[2/3] 启动客户端...")
     print("      运行: python main.py")
     print("\n      客户端启动后：")
@@ -54,7 +54,6 @@ def run_test():
 
         print("\n✓ 客户端已启动")
         print("\n[3/3] 等待测试完成...")
-        print("      模拟器将运行 120 秒")
 
         # 等待客户端退出
         client_process.wait()
@@ -71,7 +70,7 @@ def run_test():
         print("=" * 60)
 
         # 打印模拟器输出
-        print("\n机载端模拟器统计：")
+        print("\n机载端服务器统计：")
         stdout, stderr = simulator_process.communicate()
         if stdout:
             print(stdout)

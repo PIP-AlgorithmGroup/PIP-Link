@@ -11,10 +11,12 @@ class InputHandler:
         self.keys_pressed = set()
         self.mouse_delta = (0, 0)
         self.mouse_buttons = (False, False, False)  # (left, middle, right)
+        self.mouse_side_buttons = (False, False)     # (mouse4, mouse5)
         self.scroll_delta = 0
         self.mouse_locked = False
         self.on_toggle_menu: Optional[Callable] = None
         self.on_toggle_console: Optional[Callable] = None
+        self.on_toggle_hud: Optional[Callable] = None
         # Key capture callback for rebinding: called with (pygame_key, key_name)
         self.on_key_capture: Optional[Callable] = None
         self._capturing_keys: bool = False
@@ -28,9 +30,12 @@ class InputHandler:
             if event.type == pygame.QUIT:
                 return False
 
-            # Forward ImGui events
-            if imgui_renderer:
-                imgui_renderer.process_event(event)
+            # Forward ImGui events (skip VIDEORESIZE to avoid renderer crash)
+            if imgui_renderer and event.type != pygame.VIDEORESIZE:
+                try:
+                    imgui_renderer.process_event(event)
+                except Exception:
+                    pass
 
             if event.type == pygame.KEYDOWN:
                 # Key capture mode: intercept for rebinding
@@ -45,6 +50,10 @@ class InputHandler:
                 if event.key == pygame.K_ESCAPE:
                     if self.on_toggle_menu:
                         self.on_toggle_menu()
+                # TAB toggles HUD
+                if event.key == pygame.K_TAB:
+                    if self.on_toggle_hud:
+                        self.on_toggle_hud()
                 # ` (backquote/tilde) toggles console
                 if event.key == pygame.K_BACKQUOTE:
                     if self.on_toggle_console:
@@ -67,6 +76,10 @@ class InputHandler:
                     self.scroll_delta = 1
                 elif event.button == 5:  # Scroll down
                     self.scroll_delta = -1
+                elif event.button == 6:  # Mouse4 (side back)
+                    self.mouse_side_buttons = (True, self.mouse_side_buttons[1])
+                elif event.button == 7:  # Mouse5 (side forward)
+                    self.mouse_side_buttons = (self.mouse_side_buttons[0], True)
 
             elif event.type == pygame.MOUSEBUTTONUP:
                 if event.button == 1:
@@ -75,6 +88,10 @@ class InputHandler:
                     self.mouse_buttons = (self.mouse_buttons[0], False, self.mouse_buttons[2])
                 elif event.button == 3:
                     self.mouse_buttons = (self.mouse_buttons[0], self.mouse_buttons[1], False)
+                elif event.button == 6:
+                    self.mouse_side_buttons = (False, self.mouse_side_buttons[1])
+                elif event.button == 7:
+                    self.mouse_side_buttons = (self.mouse_side_buttons[0], False)
 
         return True
 
