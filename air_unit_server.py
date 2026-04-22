@@ -27,8 +27,8 @@ VIDEO_WIDTH = 1280
 VIDEO_HEIGHT = 720
 
 # 默认串流参数
-DEFAULT_TARGET_BITRATE_KBPS = 800  # 2 Mbps
-DEFAULT_FPS = 60
+DEFAULT_TARGET_BITRATE_KBPS = 2000
+DEFAULT_FPS = 30
 DEFAULT_JPEG_QUALITY = 80
 
 
@@ -228,7 +228,7 @@ class AirUnitServer:
             'resolution': '1920x1080',
             'bitrate': target_bitrate_kbps,
             'target_fps': fps,
-            'encoder': 'jpeg',
+            'encoder': 'h264',
             'fec_enabled': False,
             'fec_redundancy': 0.2,
         }
@@ -389,20 +389,68 @@ class AirUnitServer:
         self.acks_sent += 1
 
     def _handle_param_update(self, data: bytes, addr: tuple, seq: int):
-        """处理参数修改请求"""
+        """处理参数修改请求 — 存储并应用到编码器"""
         import json
         try:
-            # payload 在 header(9) + t1(8) 之后，CRC(4) 之前
             payload_bytes = data[17:-4]
             params = json.loads(payload_bytes.decode('utf-8'))
             for key, value in params.items():
                 if key in self._params:
+                    old = self._params[key]
                     self._params[key] = value
-                    logger.info(f"Param updated: {key} = {value}")
+                    if old != value:
+                        logger.info(f"Param updated: {key} = {value}")
+                        self._apply_param(key, value)
             self.param_updates_received += 1
             self._send_ack(addr, seq)
         except Exception as e:
             logger.error(f"Param update error: {e}")
+
+    def _apply_param(self, key: str, value):
+        """Apply a single parameter change to the running encoder/pipeline."""
+        if key == 'bitrate':
+            bitrate = int(value)
+            self.encoder = AdaptiveEncoder(bitrate, self.fps, self.encoder.quality)
+            if self._h264_encoder:
+                self._h264_encoder = H264Encoder(
+                    VIDEO_WIDTH, VIDEO_HEIGHT, self.fps, bitrate=bitrate * 1000)
+            logger.info(f"Encoder rebuilt: bitrate={bitrate} kbps")
+
+        elif key == 'target_fps':
+            self.fps = int(value)
+            self.encoder = AdaptiveEncoder(
+                self._params['bitrate'], self.fps, self.encoder.quality)
+            if self._h264_encoder:
+                self._h264_encoder = H264Encoder(
+                    VIDEO_WIDTH, VIDEO_HEIGHT, self.fps,
+                    bitrate=self._params['bitrate'] * 1000)
+            logger.info(f"Encoder rebuilt: fps={self.fps}")
+
+        elif key == 'encoder':
+            codec = str(value)
+            if codec == 'h264' and H264_AVAILABLE:
+                self._h264_encoder = H264Encoder(
+                    VIDEO_WIDTH, VIDEO_HEIGHT, self.fps,
+                    bitrate=self._params['bitrate'] * 1000)
+                logger.info("Switched to H.264 encoder")
+            else:
+                self._h264_encoder = None
+                logger.info("Switched to JPEG encoder")
+
+        elif key == 'fec_enabled':
+            enabled = bool(value)
+            if enabled and FEC_AVAILABLE and not self._fec_encoder:
+                self._fec_encoder = FECEncoder(self._params['fec_redundancy'])
+                logger.info("FEC enabled")
+            elif not enabled:
+                self._fec_encoder = None
+                logger.info("FEC disabled")
+
+        elif key == 'fec_redundancy':
+            redundancy = float(value)
+            if self._fec_encoder:
+                self._fec_encoder = FECEncoder(redundancy)
+                logger.info(f"FEC redundancy updated: {redundancy}")
 
     def _handle_param_query(self, addr: tuple, seq: int):
         """处理参数查询请求 - 回复当前参数"""
@@ -460,7 +508,6 @@ class AirUnitServer:
         logger.info(f"Video sender started (target: {self.encoder.target_bitrate_kbps} kbps, "
                      f"{self.fps} fps, Q{self.encoder.quality})")
         frame_id = 0
-        frame_interval = 1.0 / self.fps
         bytes_sent_window = 0
         window_start = time.time()
 
@@ -499,7 +546,7 @@ class AirUnitServer:
                         self.client_video_addr = None
                         continue
 
-                frame_start = time.time()
+                frame_start = time.perf_counter()
                 frame_id += 1
 
                 # 编码：H.264 或 JPEG
@@ -515,7 +562,10 @@ class AirUnitServer:
                     frame_data = self.encoder.encode(frame_id)
                     codec_flag = 0  # JPEG
 
+                encode_time_ms = (time.perf_counter() - frame_start) * 1000.0
+
                 # 分片发送
+                _t_fec_start = time.perf_counter()
                 CHUNK_SIZE = 60000
                 total_data_chunks = (len(frame_data) + CHUNK_SIZE - 1) // CHUNK_SIZE
                 data_chunks = []
@@ -530,15 +580,18 @@ class AirUnitServer:
                 else:
                     all_chunks = data_chunks
                 total_chunks_with_fec = len(all_chunks)
+                fec_time_ms = (time.perf_counter() - _t_fec_start) * 1000.0
 
+                _t_send_start = time.perf_counter()
                 frame_packets = {}
                 try:
                     for chunk_idx, chunk in enumerate(all_chunks):
                         is_parity = 1 if chunk_idx >= total_data_chunks else 0
-                        # 头: [frame_id:4][total:2][idx:2][size:4][fec_flag:1][orig_chunks:2][codec:1]
-                        header = struct.pack("=IHHIBHB",
+                        # 头: [frame_id:4][total:2][idx:2][size:4][fec_flag:1][orig_chunks:2][codec:1][encode_ms:4]
+                        header = struct.pack("=IHHIBHBf",
                                              frame_id, total_chunks_with_fec, chunk_idx,
-                                             len(chunk), is_parity, total_data_chunks, codec_flag)
+                                             len(chunk), is_parity, total_data_chunks, codec_flag,
+                                             encode_time_ms)
                         pkt = header + chunk
                         frame_packets[chunk_idx] = pkt
                         self.video_socket.sendto(pkt, self.client_video_addr)
@@ -552,6 +605,15 @@ class AirUnitServer:
                 except Exception as e:
                     logger.warning(f"Video send failed: {e}")
                     self.client_video_addr = None
+                send_time_ms = (time.perf_counter() - _t_send_start) * 1000.0
+
+                total_frame_ms = (time.perf_counter() - frame_start) * 1000.0
+                if total_frame_ms > (1000.0 / self.fps) * 1.5:
+                    logger.warning(f"[SLOW SEND] {total_frame_ms:.1f}ms | "
+                                   f"encode={encode_time_ms:.1f} fec={fec_time_ms:.1f} "
+                                   f"send={send_time_ms:.1f} "
+                                   f"chunks={total_data_chunks}+{total_chunks_with_fec - total_data_chunks} "
+                                   f"size={len(frame_data)}")
 
                 # 码率统计（每 5 秒打印）
                 now = time.time()
@@ -564,8 +626,8 @@ class AirUnitServer:
                     window_start = now
 
                 # 精确帧间隔控制
-                encode_time = time.time() - frame_start
-                sleep_time = max(0.001, frame_interval - encode_time)
+                elapsed = time.perf_counter() - frame_start
+                sleep_time = max(0.001, (1.0 / self.fps) - elapsed)
                 time.sleep(sleep_time)
 
             except Exception as e:
@@ -595,8 +657,8 @@ def main():
     parser.add_argument("--quality", type=int, default=DEFAULT_JPEG_QUALITY,
                         help="Initial JPEG quality (default: 50)")
     parser.add_argument("--verbose", action="store_true")
-    parser.add_argument("--codec", choices=["jpeg", "h264"], default="jpeg",
-                        help="Video codec (default: jpeg)")
+    parser.add_argument("--codec", choices=["jpeg", "h264"], default="h264",
+                        help="Video codec (default: h264)")
     parser.add_argument("--fec", action="store_true", help="Enable FEC")
     parser.add_argument("--show-input", action="store_true",
                         help="Real-time display of keyboard input data")
@@ -607,11 +669,9 @@ def main():
 
     server = AirUnitServer(args.name, args.control_port, args.video_port,
                            args.bitrate, args.fps, args.quality)
-    if args.codec == 'h264':
-        server._params['encoder'] = 'h264'
-        if H264_AVAILABLE:
-            server._h264_encoder = H264Encoder(
-                VIDEO_WIDTH, VIDEO_HEIGHT, args.fps, bitrate=args.bitrate * 1000)
+    if args.codec == 'jpeg':
+        server._params['encoder'] = 'jpeg'
+        server._h264_encoder = None
     if args.fec:
         server._params['fec_enabled'] = True
     if args.show_input:

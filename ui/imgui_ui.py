@@ -1120,6 +1120,49 @@ class ImGuiUI:
                 pass
 
         imgui.spacing()
+        self._draw_subsection("STREAM SETTINGS")
+
+        # Encoder combo — switching requires confirmation
+        encoder_labels = ["JPEG", "H.264"]
+        encoder = params.get("stream_encoder", 0)
+        changed, new_val = self._animated_combo("Encoder", encoder, encoder_labels)
+        if changed and new_val != encoder and on_change:
+            self._request_confirm(
+                param_key="stream_encoder",
+                old_value=encoder,
+                new_value=new_val,
+                label=f"Encoder: {encoder_labels[encoder]} -> {encoder_labels[new_val]}",
+                on_confirm=on_change,
+                on_revert=on_change,
+            )
+
+        # Bitrate slider
+        bitrate = params.get("stream_bitrate", 2000)
+        changed, new_val = self._slider_int_with_hint("Bitrate (kbps)##stream", bitrate, 500, 10000)
+        if changed and on_change:
+            on_change("stream_bitrate", new_val)
+
+        # Target FPS slider
+        target_fps = params.get("stream_fps", 30)
+        changed, new_val = self._slider_int_with_hint("Target FPS##stream", target_fps, 10, 120)
+        if changed and on_change:
+            on_change("stream_fps", new_val)
+
+        # FEC checkbox
+        fec_enabled = params.get("stream_fec_enabled", False)
+        changed, new_val = imgui.checkbox("Enable FEC##stream", fec_enabled)
+        if changed and on_change:
+            on_change("stream_fec_enabled", new_val)
+
+        # FEC redundancy slider (only when FEC enabled)
+        if fec_enabled:
+            fec_r = params.get("stream_fec_redundancy", 0.20)
+            changed, new_val = self._slider_float_with_hint(
+                "FEC Redundancy##stream", fec_r, 0.05, 0.50, "%.2f")
+            if changed and on_change:
+                on_change("stream_fec_redundancy", new_val)
+
+        imgui.spacing()
         self._draw_subsection("LIVE STREAM STATS")
         self._pop_font(pushed)
 

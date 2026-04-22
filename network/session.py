@@ -7,7 +7,7 @@ from enum import Enum
 from typing import Optional, Callable
 from config import Config
 from network.service_discovery import ServiceDiscovery
-from network.video_receiver import VideoReceiver
+from network.video_process import VideoReceiverProcess
 from network.control_sender import ControlSender
 from network.heartbeat import HeartbeatManager
 
@@ -34,7 +34,7 @@ class SessionManager:
 
         # 网络组件
         self.service_discovery: Optional[ServiceDiscovery] = None
-        self.video_receiver: Optional[VideoReceiver] = None
+        self.video_receiver: Optional[VideoReceiverProcess] = None
         self.control_sender: Optional[ControlSender] = None
         self.heartbeat: Optional[HeartbeatManager] = None
 
@@ -55,7 +55,7 @@ class SessionManager:
         self._reconnect_thread: Optional[threading.Thread] = None
         self._reconnect_enabled = False
         self._reconnect_interval = 5.0
-        self._max_reconnect_attempts = 5
+        self._max_reconnect_attempts = 3
 
         # 上次连接的服务信息（用于重连）
         self._last_service_name: str = ""
@@ -188,8 +188,8 @@ class SessionManager:
                 # 握手事件
                 self._handshake_event = threading.Event()
 
-                # 启动视频接收
-                self.video_receiver = VideoReceiver(
+                # 启动视频接收（独立进程）
+                self.video_receiver = VideoReceiverProcess(
                     self.video_port,
                     server_addr=(self.server_ip, self.video_port)
                 )
@@ -264,7 +264,7 @@ class SessionManager:
             self._reconnect_enabled = False
 
     def _reconnect_loop(self):
-        """重连循环 — 使用上次连接的服务信息"""
+        """重连循环 — 同步尝试连接，避免 event 竞态"""
         attempt = 0
         try:
             while self._reconnect_enabled and attempt < self._max_reconnect_attempts:
@@ -275,27 +275,81 @@ class SessionManager:
                 if not self._reconnect_enabled:
                     break
 
-                if self._last_service_info:
-                    logger.info(f"Reconnecting to {self._last_service_name}...")
-                    self.connect_to_service(self._last_service_name, self._last_service_info)
-                    # 等待握手结果
-                    self._handshake_event.wait(timeout=10.0)
-                    if self.state == SessionState.CONNECTED:
-                        logger.info("Reconnect successful")
-                        self._reconnect_enabled = False
-                        return
-                else:
+                if not self._last_service_info:
                     logger.warning("No saved service info, cannot reconnect")
                     break
 
+                logger.info(f"Reconnecting to {self._last_service_name}...")
+                if self._try_connect_sync():
+                    logger.info("Reconnect successful")
+                    self._reconnect_enabled = False
+                    return
+
             if self._reconnect_enabled:
                 logger.warning(f"Reconnect failed after {attempt} attempts")
-                with self._lock:
-                    self._reconnect_enabled = False
+
+            with self._lock:
+                self._reconnect_enabled = False
+                if self.state != SessionState.CONNECTED:
                     self._set_state(SessionState.IDLE)
 
         except Exception as e:
             logger.error(f"Reconnect loop error: {e}")
+
+    def _try_connect_sync(self) -> bool:
+        """同步尝试连接一次，返回是否成功"""
+        # 从保存的服务信息重新解析地址
+        addresses = self._last_service_info.get('addresses', [])
+        port = self._last_service_info.get('port', 0)
+        properties = self._last_service_info.get('properties', {})
+        if not addresses or not port:
+            return False
+
+        with self._lock:
+            self._disconnect_internal()
+
+            self.server_ip = addresses[0]
+            self.control_port = port
+            video_port_str = properties.get('video_port', '')
+            self.video_port = int(video_port_str) if video_port_str else port - Config.VIDEO_PORT_OFFSET
+
+            self._set_state(SessionState.CONNECTING)
+            self._handshake_event = threading.Event()
+
+            try:
+                self.video_receiver = VideoReceiverProcess(
+                    self.video_port,
+                    server_addr=(self.server_ip, self.video_port)
+                )
+                self.video_receiver.start()
+
+                self.control_sender = ControlSender()
+                self.control_sender.on_param_response = self._on_param_response
+                self.control_sender.on_ready_changed = self._on_ready_changed
+                self.control_sender.start(self.server_ip, self.control_port)
+
+                self.heartbeat = HeartbeatManager()
+                self.heartbeat.on_first_ack = self._on_handshake_ok
+                # 重连期间不注册 on_connection_lost，防止循环触发
+                self.heartbeat.start(self.server_ip, self.control_port)
+
+            except Exception as e:
+                logger.error(f"Reconnect connect error: {e}")
+                self._disconnect_internal()
+                return False
+
+        if not self._handshake_event.wait(timeout=10.0):
+            logger.warning("Reconnect handshake timeout")
+            with self._lock:
+                self._disconnect_internal()
+            return False
+
+        # 握手成功，注册心跳回调
+        with self._lock:
+            if self.heartbeat:
+                self.heartbeat.on_connection_lost = self._on_heartbeat_timeout
+                self.heartbeat.on_connection_restored = self._on_heartbeat_restored
+        return self.state == SessionState.CONNECTED
 
     def disconnect(self):
         """断开连接"""

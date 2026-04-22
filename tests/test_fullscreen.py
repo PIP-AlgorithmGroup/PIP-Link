@@ -12,7 +12,7 @@ from pygame.locals import *
 from OpenGL.GL import *
 import imgui
 from imgui.integrations.pygame import PygameRenderer
-from logic.input_mapper import InputMapper
+from network.keyboard_encoder import KeyboardEncoder
 
 pygame.init()
 pygame.display.set_mode((1280, 720), DOUBLEBUF | OPENGL)
@@ -35,7 +35,7 @@ except:
     pass
 
 renderer = PygameRenderer()
-mapper = InputMapper()
+kb = KeyboardEncoder()
 
 # Disable IME like real app
 pygame.key.stop_text_input()
@@ -59,8 +59,8 @@ print(f"Threads before stop: {threading.active_count()}", flush=True)
 for t in threading.enumerate():
     print(f"  {t.name} daemon={t.daemon} alive={t.is_alive()}", flush=True)
 
-print("Stopping mapper.keyboard...", flush=True)
-mapper.keyboard.stop()
+print("Stopping keyboard...", flush=True)
+kb.stop()
 
 print(f"Threads after stop: {threading.active_count()}", flush=True)
 for t in threading.enumerate():
@@ -82,7 +82,7 @@ glViewport(0, 0, w, h)
 io.display_size = (w, h)
 print(f"Borderless: {w}x{h}", flush=True)
 
-mapper.keyboard.start()
+kb.start()
 print("KB restarted", flush=True)
 
 for i in range(120):
@@ -97,5 +97,5 @@ for i in range(120):
     clock.tick(60)
 
 print("Done!", flush=True)
-mapper.keyboard.stop()
+kb.stop()
 pygame.quit()

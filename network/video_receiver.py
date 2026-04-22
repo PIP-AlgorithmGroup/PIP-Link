@@ -62,6 +62,7 @@ class VideoReceiver:
         self.frames_dropped = 0
         self._last_frame_time = 0.0
         self._last_decode_time_ms = 0.0
+        self._last_encode_time_ms = 0.0
         self.decode_errors = 0
         self.crc_errors = 0
 
@@ -161,8 +162,30 @@ class VideoReceiver:
                 self.crc_errors += 1
             return
 
-        # 尝试新格式: [frame_id:4][total:2][idx:2][size:4][fec_flag:1][orig_chunks:2][codec:1] = 16 bytes
-        if len(data) >= 16:
+        # 尝试新格式 20B: [frame_id:4][total:2][idx:2][size:4][fec_flag:1][orig_chunks:2][codec:1][encode_ms:4]
+        if len(data) >= 20:
+            frame_id, total_chunks, chunk_idx, chunk_size, fec_flag, orig_chunks, codec_flag, encode_ms = \
+                struct.unpack("=IHHIBHBf", data[:20])
+            if fec_flag <= 1 and orig_chunks <= total_chunks and chunk_size <= len(data) - 20:
+                payload = data[20:20 + chunk_size]
+                has_fec = True
+                with self._stats_lock:
+                    self._last_encode_time_ms = encode_ms
+            else:
+                # 回退 16B 格式
+                frame_id, total_chunks, chunk_idx, chunk_size, fec_flag, orig_chunks, codec_flag = \
+                    struct.unpack("=IHHIBHB", data[:16])
+                if fec_flag <= 1 and orig_chunks <= total_chunks and chunk_size <= len(data) - 16:
+                    payload = data[16:16 + chunk_size]
+                    has_fec = True
+                else:
+                    frame_id, total_chunks, chunk_idx, chunk_size = struct.unpack("=IHHI", data[:12])
+                    payload = data[12:12 + chunk_size]
+                    has_fec = False
+                    orig_chunks = total_chunks
+                    fec_flag = 0
+                    codec_flag = 0
+        elif len(data) >= 16:
             frame_id, total_chunks, chunk_idx, chunk_size, fec_flag, orig_chunks, codec_flag = \
                 struct.unpack("=IHHIBHB", data[:16])
             if fec_flag <= 1 and orig_chunks <= total_chunks and chunk_size <= len(data) - 16:
@@ -183,6 +206,10 @@ class VideoReceiver:
             orig_chunks = total_chunks
             fec_flag = 0
             codec_flag = 0
+
+        completed_frame_data = None
+        completed_frame_codec = 0
+        completed_frame_id = 0
 
         with self._buffer_lock:
             if frame_id <= self._last_completed_frame_id:
@@ -208,11 +235,12 @@ class VideoReceiver:
             if can_complete:
                 frame_data = self._try_reassemble(frame_id, orig_chunks, total_chunks, has_fec)
                 if frame_data is not None:
-                    frame_codec = self._frame_codec.get(frame_id, 0)
+                    completed_frame_data = frame_data
+                    completed_frame_codec = self._frame_codec.get(frame_id, 0)
+                    completed_frame_id = frame_id
                     prev_id = self._last_completed_frame_id
                     self._last_completed_frame_id = frame_id
 
-                    # 记录丢包事件：prev_id+1 到 frame_id 之间跳过的帧算丢失
                     now = time.time()
                     skipped = max(0, frame_id - prev_id - 1) if prev_id > 0 else 0
                     with self._stats_lock:
@@ -228,8 +256,10 @@ class VideoReceiver:
                         self._chunk_sizes.pop(fid, None)
                         self._frame_codec.pop(fid, None)
 
-                    self._send_video_ack(frame_id)
-                    self._decode_and_enqueue(frame_data, frame_codec)
+        # 解码和 ACK 在锁外执行，避免阻塞后续包的接收
+        if completed_frame_data is not None:
+            self._send_video_ack(completed_frame_id)
+            self._decode_and_enqueue(completed_frame_data, completed_frame_codec)
 
     def _enqueue_frame(self, frame):
         """放入渲染队列"""
@@ -317,6 +347,7 @@ class VideoReceiver:
                 "frames_dropped": self.frames_dropped,
                 "video_loss_rate": self._calc_recent_loss(1.0),
                 "decode_time_ms": self._last_decode_time_ms,
+                "encode_time_ms": self._last_encode_time_ms,
                 "buffer_frames": self.render_queue.qsize(),
                 "decode_errors": self.decode_errors,
                 "crc_errors": self.crc_errors,

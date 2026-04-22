@@ -18,7 +18,6 @@ from OpenGL.GL import *
 from OpenGL.GLU import *
 import imgui
 from imgui.integrations.pygame import PygameRenderer
-import time
 
 import builtins
 
@@ -118,12 +117,13 @@ class Application:
         self.input_handler.on_toggle_menu = self._on_toggle_menu
         self.input_handler.on_toggle_console = self._on_toggle_console
         self.input_handler.on_toggle_hud = self._on_toggle_hud
-        self.input_handler.on_key_capture = self.imgui_ui.on_key_captured
+        self.input_handler.on_key_capture = self._on_key_captured
 
         # Load persisted key bindings
         saved_bindings = self.config_manager.get_key_bindings()
         if saved_bindings:
             self.imgui_ui._key_bindings.update(saved_bindings)
+            self.input_handler.set_bindings(saved_bindings)
             print("[App] Loaded key bindings from config")
 
     def _on_session_state_changed(self, state):
@@ -132,6 +132,24 @@ class Application:
         if state in (SessionState.IDLE, SessionState.DISCONNECTED):
             self.video_renderer.frame_data = None
             self._force_not_ready()
+
+    # stream_* → air unit param name mapping
+    _STREAM_PARAM_MAP = {
+        "stream_encoder": ("encoder", lambda v: "h264" if v == 1 else "jpeg"),
+        "stream_bitrate": ("bitrate", int),
+        "stream_fps": ("target_fps", int),
+        "stream_fec_enabled": ("fec_enabled", bool),
+        "stream_fec_redundancy": ("fec_redundancy", float),
+    }
+
+    # air unit → stream_* reverse mapping
+    _REMOTE_TO_STREAM = {
+        "encoder": ("stream_encoder", lambda v: 1 if v == "h264" else 0),
+        "bitrate": ("stream_bitrate", int),
+        "target_fps": ("stream_fps", int),
+        "fec_enabled": ("stream_fec_enabled", bool),
+        "fec_redundancy": ("stream_fec_redundancy", float),
+    }
 
     def _on_param_response(self, params: dict):
         """机载端参数同步回调 — 仅更新远端参数，跳过客户端本地参数"""
@@ -143,6 +161,10 @@ class Application:
         synced = 0
         for key, value in params.items():
             if key not in local_keys:
+                # Reverse-map air unit params to stream_* for UI display
+                if key in self._REMOTE_TO_STREAM:
+                    stream_key, transform = self._REMOTE_TO_STREAM[key]
+                    self.param_manager.set_param(stream_key, transform(value))
                 self.param_manager.set_param(key, value)
                 synced += 1
         if synced:
@@ -236,6 +258,14 @@ class Application:
             self._force_not_ready()
         print(f"[App] Menu toggled: {self.imgui_ui.show_menu}")
 
+    def _on_key_captured(self, pygame_key: int, key_name: str):
+        """Key captured during rebinding — update UI label + InputHandler binding"""
+        self.imgui_ui.on_key_captured(pygame_key, key_name)
+        action = self.imgui_ui._rebinding_action  # None after on_key_captured
+        # Find which action was just rebound by checking what changed
+        bindings = self.imgui_ui._key_bindings
+        self.input_handler.set_bindings(bindings)
+
     def _resolve_and_connect(self, device_name: str):
         """后台线程：直接 mDNS resolve 设备名并连接"""
         from zeroconf import Zeroconf, ServiceInfo
@@ -286,6 +316,7 @@ class Application:
         if key == "key_bindings":
             self.config_manager.config["key_bindings"] = value
             self.config_manager.save()
+            self.input_handler.set_bindings(value)
         elif key in ["mouse_sensitivity", "fov", "invert_pitch", "video_quality", "recording_enabled"]:
             self.config_manager.save()
 
@@ -301,6 +332,12 @@ class Application:
         # Resolution change — deferred to next frame start
         if key == "resolution":
             self._pending_resolution = value
+            return
+
+        # Send stream_* params to air unit with name translation
+        if key in self._STREAM_PARAM_MAP:
+            remote_key, transform = self._STREAM_PARAM_MAP[key]
+            self.session.send_param_update({remote_key: transform(value)})
             return
 
         # Send remote params to air unit
@@ -583,7 +620,7 @@ class Application:
             # 8. Swap buffers
             pygame.display.flip()
 
-            # 8. Frame rate control
+            # 9. Frame rate control
             self.fps_clock.tick(Config.TARGET_FPS)
 
         self.session.disconnect()

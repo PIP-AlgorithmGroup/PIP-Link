@@ -25,6 +25,13 @@ class ParamManager:
             # Debug
             "show_performance_graph": False,
             "show_debug_info": False,
+
+            # Stream (remote — synced to air unit)
+            "stream_encoder": 1,           # 0=JPEG, 1=H.264
+            "stream_bitrate": 2000,        # kbps
+            "stream_fps": 30,              # target fps
+            "stream_fec_enabled": False,
+            "stream_fec_redundancy": 0.20,
         }
 
         # Resolution mapping: (width, height, aspect_ratio_label)
