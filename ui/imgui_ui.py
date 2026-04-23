@@ -90,10 +90,16 @@ class ImGuiUI:
         # Confirmation dialog state (None = inactive)
         self._confirm_dialog = None
 
+        # Console overlay height (pixels) — used to block menu input
+        self._console_height: float = 0.0
+
         # Recording tab state
         self._recording_active: bool = False
         self._recording_start_time: Optional[float] = None
         self._recording_file_size_bytes: int = 0
+
+        # Export status messages: key -> (message, expire_time)
+        self._export_status: dict = {}
 
         # Device list hover alpha: idx -> float
         self._device_hover_alpha: dict = {}
@@ -484,7 +490,9 @@ class ImGuiUI:
         on_param_change: Optional[Callable] = None,
         stats: Optional[Dict] = None,
         live_status: Optional[Dict] = None,
+        console_height: float = 0.0,
     ) -> None:
+        self._console_height = console_height
         if not self.show_menu and self.menu_alpha <= 0.01:
             return
 
@@ -528,10 +536,13 @@ class ImGuiUI:
         imgui.set_next_window_position(center_x, center_y, imgui.ALWAYS)
         imgui.set_next_window_size(menu_width, menu_height, imgui.ALWAYS)
 
-        expanded, _ = imgui.begin(
-            "##menu", False,
-            imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE
-        )
+        _menu_flags = imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_RESIZE
+        if self._console_height > 0:
+            _mx, _my = imgui.get_io().mouse_pos
+            if _my < self._console_height:
+                _menu_flags |= imgui.WINDOW_NO_MOUSE_INPUTS
+
+        expanded, _ = imgui.begin("##menu", False, _menu_flags)
 
         if expanded:
             # Custom tab bar with horizontal scroll
@@ -545,10 +556,11 @@ class ImGuiUI:
                               flags=imgui.WINDOW_NO_SCROLL_WITH_MOUSE)
 
             # Elastic vertical scroll (we handle wheel ourselves)
-            if imgui.is_window_hovered(imgui.HOVERED_CHILD_WINDOWS):
-                io = imgui.get_io()
-                if io.mouse_wheel != 0:
-                    self._content_scroll_y -= io.mouse_wheel * 100
+            _io = imgui.get_io()
+            _my = _io.mouse_pos[1]
+            if imgui.is_window_hovered(imgui.HOVERED_CHILD_WINDOWS) and _my >= self._console_height:
+                if _io.mouse_wheel != 0:
+                    self._content_scroll_y -= _io.mouse_wheel * 100
 
             max_scroll_y = imgui.get_scroll_max_y()
             self._content_scroll_y = max(0.0, min(self._content_scroll_y, max_scroll_y))
@@ -570,12 +582,14 @@ class ImGuiUI:
             elif self._active_tab == 3:
                 self._draw_recording_tab(params, on_param_change, callbacks)
             elif self._active_tab == 4:
-                self._draw_diagnostics_tab(stats or {}, live_status or {})
+                self._draw_diagnostics_tab(stats or {}, live_status or {}, callbacks)
             elif self._active_tab == 5:
                 self._draw_control_settings_tab(params, on_param_change, callbacks)
             elif self._active_tab == 6:
-                self._draw_debug_tab(params, on_param_change, stats or {}, live_status or {})
+                self._draw_debug_tab(params, on_param_change, stats or {}, live_status or {}, callbacks)
             elif self._active_tab == 7:
+                self._draw_audit_tab(callbacks)
+            elif self._active_tab == 8:
                 self._draw_about_tab()
 
             # Compensate for outer window padding so content can scroll fully to bottom
@@ -595,7 +609,7 @@ class ImGuiUI:
         """Custom tab bar: wheel scrolls horizontally, click to switch.
         Style: plain text labels with accent underline on active tab."""
         tab_labels = ["CONNECTION", "PARAMETERS", "VIDEO", "RECORDING",
-                      "DIAGNOSTICS", "CONTROL", "DEBUG", "ABOUT"]
+                      "DIAGNOSTICS", "CONTROL", "DEBUG", "AUDIT", "ABOUT"]
 
         tab_bar_height = 34
         pad_x = 16
@@ -611,9 +625,9 @@ class ImGuiUI:
 
         # Mouse wheel -> update target scroll position
         if imgui.is_window_hovered():
-            io = imgui.get_io()
-            if io.mouse_wheel != 0:
-                self._tab_scroll_x -= io.mouse_wheel * 100
+            _io = imgui.get_io()
+            if _io.mouse_wheel != 0 and _io.mouse_pos[1] >= self._console_height:
+                self._tab_scroll_x -= _io.mouse_wheel * 100
 
         # Clamp target
         max_scroll = imgui.get_scroll_max_x()
@@ -1163,6 +1177,29 @@ class ImGuiUI:
                 on_change("stream_fec_redundancy", new_val)
 
         imgui.spacing()
+        self._draw_subsection("IMAGE ENHANCEMENT")
+
+        brightness = params.get("brightness", 0)
+        changed, new_val = self._slider_int_with_hint("Brightness##enh", brightness, -100, 100)
+        if changed and on_change:
+            on_change("brightness", new_val)
+
+        contrast = params.get("contrast", 0)
+        changed, new_val = self._slider_int_with_hint("Contrast##enh", contrast, -100, 100)
+        if changed and on_change:
+            on_change("contrast", new_val)
+
+        sharpness = params.get("sharpness", 0)
+        changed, new_val = self._slider_int_with_hint("Sharpness##enh", sharpness, 0, 100)
+        if changed and on_change:
+            on_change("sharpness", new_val)
+
+        denoise = params.get("denoise", 0)
+        changed, new_val = self._slider_int_with_hint("Denoise##enh", denoise, 0, 100)
+        if changed and on_change:
+            on_change("denoise", new_val)
+
+        imgui.spacing()
         self._draw_subsection("LIVE STREAM STATS")
         self._pop_font(pushed)
 
@@ -1262,16 +1299,31 @@ class ImGuiUI:
         imgui.same_line(0, 16)
 
         # Screenshot button
-        if imgui.button("SCREENSHOT (Ctrl+S)", 200, 36):
+        if imgui.button("SCREENSHOT", 200, 36):
             if callbacks and "screenshot" in callbacks:
                 callbacks["screenshot"]()
 
         imgui.spacing()
 
-        # Open recording folder
-        if imgui.button("OPEN RECORDINGS FOLDER", 200, 28):
+        # Choose save folder
+        if imgui.button("OPEN FOLDER", 200, 36):
             if callbacks and "open_recordings_folder" in callbacks:
                 callbacks["open_recordings_folder"]()
+
+        imgui.spacing()
+
+        # Show current save paths
+        save_dir = params.get("save_dir") or "."
+        rec_path = os.path.join(os.path.abspath(save_dir), "recordings")
+        shot_path = os.path.join(os.path.abspath(save_dir), "screenshots")
+        pushed_path = self._push_font(self.font_body)
+        imgui.text_colored("Recordings:", *Theme.TEXT_SECONDARY)
+        imgui.same_line()
+        imgui.text(rec_path)
+        imgui.text_colored("Screenshots:", *Theme.TEXT_SECONDARY)
+        imgui.same_line()
+        imgui.text(shot_path)
+        self._pop_font(pushed_path)
 
         self._pop_font(pushed)
 
@@ -1311,8 +1363,13 @@ class ImGuiUI:
     # DIAGNOSTICS tab
     # -------------------------------------------------------------------------
 
-    def _draw_diagnostics_tab(self, stats: Dict, live_status: Dict) -> None:
+    def _draw_diagnostics_tab(self, stats: Dict, live_status: Dict, callbacks: Dict = None) -> None:
         self._draw_section_title("NETWORK DIAGNOSTICS")
+
+        # 获取历史数据
+        history = {}
+        if callbacks and "get_history" in callbacks:
+            history = callbacks["get_history"]() or {}
 
         pushed = self._push_font(self.font_body)
 
@@ -1324,6 +1381,19 @@ class ImGuiUI:
         downlink_kbps = stats.get("downlink_bandwidth_kbps", self._bandwidth_kbps)
         self._draw_kv_row("Uplink", f"{uplink_kbps:.1f} kbps")
         self._draw_kv_row("Downlink", f"{downlink_kbps:.1f} kbps")
+
+        # 带宽趋势图
+        if history.get("bandwidth"):
+            bw_data = array('f', history["bandwidth"])
+            max_bw = max(max(bw_data), 1.0)
+            imgui.plot_lines(
+                f"##bw_chart",
+                bw_data,
+                graph_size=(0, 50),
+                scale_min=0.0,
+                scale_max=max_bw * 1.2,
+                overlay_text=f"BW {downlink_kbps:.0f} kbps",
+            )
 
         imgui.spacing()
 
@@ -1342,6 +1412,21 @@ class ImGuiUI:
         self._draw_kv_row("Packets Lost", f"{packets_lost}")
         self._draw_kv_row("Retransmitted", f"{packets_retransmitted}")
 
+        # 丢包率趋势图
+        if history.get("loss"):
+            loss_data = array('f', history["loss"])
+            loss_pct = live_status.get("packet_loss_rate", 0.0) * 100.0
+            imgui.push_style_color(imgui.COLOR_PLOT_LINES, 1.0, 0.55, 0.1, 1.0)
+            imgui.plot_lines(
+                "##loss_chart",
+                loss_data,
+                graph_size=(0, 50),
+                scale_min=0.0,
+                scale_max=max(max(loss_data), 1.0),
+                overlay_text=f"Loss {loss_pct:.1f}%",
+            )
+            imgui.pop_style_color()
+
         imgui.spacing()
 
         # --- RTT statistics ---
@@ -1356,6 +1441,21 @@ class ImGuiUI:
         self._draw_kv_row("Min RTT", f"{latency_min:.2f} ms")
         self._draw_kv_row("Avg RTT", f"{latency_avg:.2f} ms", accent=True)
         self._draw_kv_row("Max RTT", f"{latency_max:.2f} ms")
+
+        # RTT 趋势图
+        if history.get("rtt"):
+            rtt_data = array('f', history["rtt"])
+            max_rtt = max(max(rtt_data), 10.0)
+            imgui.push_style_color(imgui.COLOR_PLOT_LINES, 0.0, 0.85, 1.0, 1.0)
+            imgui.plot_lines(
+                "##rtt_chart",
+                rtt_data,
+                graph_size=(0, 50),
+                scale_min=0.0,
+                scale_max=max_rtt * 1.2,
+                overlay_text=f"RTT {latency_avg:.1f} ms",
+            )
+            imgui.pop_style_color()
 
         imgui.spacing()
 
@@ -1388,6 +1488,39 @@ class ImGuiUI:
         self._draw_kv_row("CRC Errors", f"{crc_errors}")
         self._draw_kv_row("Timeout Errors", f"{timeout_errors}")
         self._draw_kv_row("Decode Errors", f"{decode_errors}")
+
+        imgui.spacing()
+
+        # --- Export ---
+        pushed = self._push_font(self.font_body)
+        self._draw_subsection("EXPORT")
+        self._pop_font(pushed)
+
+        import os as _os
+        export_dir = _os.path.abspath("logs")
+        pushed = self._push_font(self.font_body)
+        imgui.text_colored(f"Dir: {export_dir}", *Theme.TEXT_SECONDARY)
+
+        if imgui.button("Export Report (CSV)##diag_export"):
+            if callbacks and "audit_logger" in callbacks:
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                path = callbacks["audit_logger"].export_csv(
+                    _os.path.join(export_dir, f"diag_{ts}")
+                )
+                if path:
+                    self._export_status["diag"] = (f"Exported: {_os.path.basename(path)}", time.time() + 5.0)
+                    print(f"[UI] Diagnostics exported: {path}")
+                else:
+                    self._export_status["diag"] = ("Export failed.", time.time() + 5.0)
+
+        now = time.time()
+        msg, exp = self._export_status.get("diag", ("", 0))
+        if msg and now < exp:
+            imgui.same_line()
+            imgui.text_colored(msg, 0.0, 0.85, 1.0, 1.0)
+        self._pop_font(pushed)
+
+
 
     # -------------------------------------------------------------------------
     # CONTROL SETTINGS tab
@@ -1532,7 +1665,7 @@ class ImGuiUI:
     # -------------------------------------------------------------------------
 
     def _draw_debug_tab(self, params: Dict, on_change: Optional[Callable],
-                        stats: Dict, live_status: Dict) -> None:
+                        stats: Dict, live_status: Dict, callbacks: Dict = None) -> None:
         self._draw_section_title("DEBUG")
 
         pushed = self._push_font(self.font_body)
@@ -1652,6 +1785,121 @@ class ImGuiUI:
                           accent=self._sys_res_mem_percent > 80)
         self._draw_kv_row("Process Memory",
                           f"{self._sys_res_proc_mem / (1024**2):.1f} MB")
+
+        # CPU / MEM 历史图表（来自 StatusMonitor）
+        if callbacks and "get_history" in callbacks:
+            history = callbacks["get_history"]() or {}
+            graph_w = imgui.get_content_region_available_width()
+            graph_h = 60
+
+            if history.get("cpu"):
+                cpu_data = array('f', history["cpu"])
+                imgui.push_style_color(imgui.COLOR_PLOT_LINES, 0.2, 0.9, 0.4, 1.0)
+                imgui.plot_lines(
+                    "##cpu_hist",
+                    cpu_data,
+                    graph_size=(graph_w, graph_h),
+                    scale_min=0.0,
+                    scale_max=100.0,
+                    overlay_text=f"CPU {self._sys_res_cpu:.1f}%",
+                )
+                imgui.pop_style_color()
+
+            if history.get("mem"):
+                mem_data = array('f', history["mem"])
+                imgui.push_style_color(imgui.COLOR_PLOT_LINES, 0.9, 0.6, 0.1, 1.0)
+                imgui.plot_lines(
+                    "##mem_hist",
+                    mem_data,
+                    graph_size=(graph_w, graph_h),
+                    scale_min=0.0,
+                    scale_max=100.0,
+                    overlay_text=f"MEM {self._sys_res_mem_percent:.1f}%",
+                )
+                imgui.pop_style_color()
+
+    # -------------------------------------------------------------------------
+    # AUDIT tab
+    # -------------------------------------------------------------------------
+
+    def _draw_audit_tab(self, callbacks: Dict = None) -> None:
+        self._draw_section_title("OPERATION AUDIT LOG")
+
+        audit_logger = callbacks.get("audit_logger") if callbacks else None
+
+        pushed = self._push_font(self.font_body)
+        self._draw_subsection("RECENT EVENTS")
+        self._pop_font(pushed)
+
+        # 操作按钮行
+        import os as _os
+        export_dir = _os.path.abspath("logs")
+        pushed = self._push_font(self.font_body)
+        imgui.text_colored(f"Dir: {export_dir}", *Theme.TEXT_SECONDARY)
+
+        if audit_logger:
+            if imgui.button("Export CSV##audit"):
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                path = audit_logger.export_csv(_os.path.join(export_dir, f"audit_export_{ts}"))
+                if path:
+                    self._export_status["audit"] = (f"Exported: {_os.path.basename(path)}", time.time() + 5.0)
+                    print(f"[UI] Audit log exported: {path}")
+                else:
+                    self._export_status["audit"] = ("Export failed.", time.time() + 5.0)
+            imgui.same_line()
+            if imgui.button("Export JSON##audit"):
+                ts = time.strftime("%Y%m%d_%H%M%S")
+                path = audit_logger.export_json(_os.path.join(export_dir, f"audit_export_{ts}"))
+                if path:
+                    self._export_status["audit"] = (f"Exported: {_os.path.basename(path)}", time.time() + 5.0)
+                    print(f"[UI] Audit log exported: {path}")
+                else:
+                    self._export_status["audit"] = ("Export failed.", time.time() + 5.0)
+            imgui.same_line()
+            if imgui.button("Clear##audit"):
+                audit_logger.clear()
+
+            now = time.time()
+            msg, exp = self._export_status.get("audit", ("", 0))
+            if msg and now < exp:
+                imgui.same_line()
+                imgui.text_colored(msg, 0.0, 0.85, 1.0, 1.0)
+
+        self._pop_font(pushed)
+        imgui.spacing()
+
+        # 日志列表
+        records = audit_logger.get_recent(100) if audit_logger else []
+
+        # 颜色映射
+        _type_colors = {
+            "connect":      (0.0, 1.0, 0.5, 1.0),
+            "disconnect":   (1.0, 0.4, 0.4, 1.0),
+            "param_change": (0.8, 0.8, 0.3, 1.0),
+            "recording":    (0.3, 0.8, 1.0, 1.0),
+            "screenshot":   (0.6, 0.9, 0.6, 1.0),
+            "error":        (1.0, 0.2, 0.2, 1.0),
+            "warning":      (1.0, 0.7, 0.1, 1.0),
+            "info":         (0.7, 0.7, 0.7, 1.0),
+        }
+
+        pushed = self._push_font(self.font_mono)
+        if not records:
+            imgui.text_colored("No events recorded yet.", *Theme.TEXT_SECONDARY)
+        else:
+            imgui.begin_child("##audit_list", 0, 0, border=False)
+            for rec in records:
+                evt_type = rec.get("type", "info")
+                color = _type_colors.get(evt_type, (0.7, 0.7, 0.7, 1.0))
+                ts_str = rec.get("time", "")
+                detail = rec.get("detail", "")
+                imgui.text_colored(f"[{ts_str}]", *Theme.TEXT_SECONDARY)
+                imgui.same_line()
+                imgui.text_colored(f"{evt_type.upper():<14}", *color)
+                imgui.same_line()
+                imgui.text(detail)
+            imgui.end_child()
+        self._pop_font(pushed)
 
     # -------------------------------------------------------------------------
     # ABOUT tab

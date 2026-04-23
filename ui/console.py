@@ -109,6 +109,10 @@ class GameConsole:
         draw_list = imgui.get_overlay_draw_list()
 
         # --- 不可见窗口吃掉控制台区域的输入，防止穿透到下层 UI ---
+        # 仅当鼠标在控制台区域内时才抢焦点，否则让 ##menu 正常响应
+        mx, my = imgui.get_io().mouse_pos
+        if 0 <= mx <= w and 0 <= my <= h:
+            imgui.set_next_window_focus()
         imgui.set_next_window_position(0, 0)
         imgui.set_next_window_size(w, h)
         imgui.push_style_var(imgui.STYLE_WINDOW_PADDING, (0, 0))
@@ -118,9 +122,7 @@ class GameConsole:
             "##console_input_blocker",
             flags=(imgui.WINDOW_NO_TITLE_BAR | imgui.WINDOW_NO_RESIZE
                    | imgui.WINDOW_NO_MOVE | imgui.WINDOW_NO_SCROLLBAR
-                   | imgui.WINDOW_NO_SAVED_SETTINGS
-                   | imgui.WINDOW_NO_FOCUS_ON_APPEARING
-                   | imgui.WINDOW_NO_BRING_TO_FRONT_ON_FOCUS),
+                   | imgui.WINDOW_NO_SAVED_SETTINGS),
         )
         imgui.end()
         imgui.pop_style_color(1)
