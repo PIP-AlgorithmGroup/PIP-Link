@@ -10,6 +10,9 @@ utils/__pycache__
 dist/
 build/
 demo/
+recordings/
+screenshots/
+logs/
 
 # IDE
 .idea/

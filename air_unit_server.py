@@ -50,6 +50,12 @@ class AdaptiveEncoder:
         self._ema_size = float(self.target_frame_bytes)
         self._ema_alpha = 0.3  # 响应速度
 
+        # 画面增强参数
+        self.brightness = 0    # -100~100
+        self.contrast = 0      # -100~100（百分比偏移）
+        self.sharpness = 0     # 0~100
+        self.denoise = 0       # 0~100
+
         # 缓存基础彩条帧（静态部分不重复生成）
         self._base_frame = self._generate_base_frame()
 
@@ -147,6 +153,20 @@ class AdaptiveEncoder:
         bar_end = min(bar_x + 160, VIDEO_WIDTH)
         frame[scroll_y:VIDEO_HEIGHT, bar_x:bar_end] = (0, 200, 255)
 
+        return self._apply_enhancements(frame)
+
+    def _apply_enhancements(self, frame: np.ndarray) -> np.ndarray:
+        if self.brightness != 0 or self.contrast != 0:
+            alpha = 1.0 + self.contrast / 100.0
+            beta = float(self.brightness)
+            frame = cv2.convertScaleAbs(frame, alpha=alpha, beta=beta)
+        if self.sharpness > 0:
+            strength = self.sharpness / 100.0
+            blurred = cv2.GaussianBlur(frame, (0, 0), 3)
+            frame = cv2.addWeighted(frame, 1.0 + strength, blurred, -strength, 0)
+        if self.denoise > 0:
+            h_val = max(1, int(self.denoise * 0.1))
+            frame = cv2.fastNlMeansDenoisingColored(frame, None, h_val, h_val, 7, 21)
         return frame
 
     def encode(self, frame_id: int) -> bytes:
@@ -231,6 +251,10 @@ class AirUnitServer:
             'encoder': 'h264',
             'fec_enabled': False,
             'fec_redundancy': 0.2,
+            'brightness': 0,
+            'contrast': 0,
+            'sharpness': 0,
+            'denoise': 0,
         }
 
         # 帧缓存（用于 NACK 重传）
@@ -348,20 +372,25 @@ class AirUnitServer:
                     self.client_ip = new_ip
                 self.last_client_time = time.time()
 
-                if msg_type == 0x01:  # 控制指令（10 字节键盘位图）
+                if msg_type == 0x01:  # 控制指令（键盘位图 + 鼠标数据）
                     self.control_commands_received += 1
-                    kb_state = data[17:-4] if len(data) >= 31 else b''
+                    kb_state = data[17:27] if len(data) >= 37 else data[17:-4] if len(data) >= 31 else b''
+                    mouse_dx = mouse_dy = mouse_buttons = scroll_delta = 0
+                    if len(data) >= 37:
+                        import struct as _s
+                        mouse_dx, mouse_dy, mouse_buttons, scroll_delta = _s.unpack('=hhBb', data[27:33])
                     if self.show_input and kb_state:
                         keys = decode_keyboard_bitmap(kb_state)
+                        mouse_info = f" mouse=({mouse_dx},{mouse_dy}) btn={mouse_buttons:#04x} scroll={scroll_delta}"
                         if keys:
-                            print(f"\r  Keys: {' + '.join(keys):<60}", end="", flush=True)
+                            print(f"\r  Keys: {' + '.join(keys):<40}{mouse_info}", end="", flush=True)
                         else:
-                            print(f"\r  Keys: {'(none)':<60}", end="", flush=True)
+                            print(f"\r  Keys: {'(none)':<40}{mouse_info}", end="", flush=True)
                     elif self.control_commands_received % 500 == 1:
                         pressed = sum(bin(b).count('1') for b in kb_state) if kb_state else 0
                         logger.info(f"Control #{self.control_commands_received}: "
                                     f"kb={kb_state.hex() if kb_state else 'empty'} "
-                                    f"({pressed} keys)")
+                                    f"({pressed} keys) mouse=({mouse_dx},{mouse_dy}) btn={mouse_buttons:#04x}")
                     self._send_ack(addr, seq)
                 elif msg_type == 0x04:  # 心跳
                     self.heartbeats_received += 1
@@ -410,7 +439,10 @@ class AirUnitServer:
         """Apply a single parameter change to the running encoder/pipeline."""
         if key == 'bitrate':
             bitrate = int(value)
-            self.encoder = AdaptiveEncoder(bitrate, self.fps, self.encoder.quality)
+            new_enc = AdaptiveEncoder(bitrate, self.fps, self.encoder.quality)
+            new_enc.brightness, new_enc.contrast = self.encoder.brightness, self.encoder.contrast
+            new_enc.sharpness, new_enc.denoise = self.encoder.sharpness, self.encoder.denoise
+            self.encoder = new_enc
             if self._h264_encoder:
                 self._h264_encoder = H264Encoder(
                     VIDEO_WIDTH, VIDEO_HEIGHT, self.fps, bitrate=bitrate * 1000)
@@ -418,8 +450,10 @@ class AirUnitServer:
 
         elif key == 'target_fps':
             self.fps = int(value)
-            self.encoder = AdaptiveEncoder(
-                self._params['bitrate'], self.fps, self.encoder.quality)
+            new_enc = AdaptiveEncoder(self._params['bitrate'], self.fps, self.encoder.quality)
+            new_enc.brightness, new_enc.contrast = self.encoder.brightness, self.encoder.contrast
+            new_enc.sharpness, new_enc.denoise = self.encoder.sharpness, self.encoder.denoise
+            self.encoder = new_enc
             if self._h264_encoder:
                 self._h264_encoder = H264Encoder(
                     VIDEO_WIDTH, VIDEO_HEIGHT, self.fps,
@@ -451,6 +485,10 @@ class AirUnitServer:
             if self._fec_encoder:
                 self._fec_encoder = FECEncoder(redundancy)
                 logger.info(f"FEC redundancy updated: {redundancy}")
+
+        elif key in ('brightness', 'contrast', 'sharpness', 'denoise'):
+            setattr(self.encoder, key, int(value))
+            logger.info(f"Enhancement updated: {key}={value}")
 
     def _handle_param_query(self, addr: tuple, seq: int):
         """处理参数查询请求 - 回复当前参数"""

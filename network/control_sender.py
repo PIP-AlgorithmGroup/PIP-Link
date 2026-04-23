@@ -38,6 +38,13 @@ class ControlSender:
         self.is_ready = False
         self._zero_state = b'\x00' * KEYBOARD_STATE_SIZE
 
+        # 鼠标状态（由 app.py 每帧更新）
+        self._mouse_dx = 0
+        self._mouse_dy = 0
+        self._mouse_buttons = 0
+        self._scroll_delta = 0
+        self._mouse_lock = threading.Lock()
+
         # 回调
         self.on_error: Optional[Callable] = None
         self.on_param_response: Optional[Callable[[dict], None]] = None
@@ -162,6 +169,14 @@ class ControlSender:
         except Exception as e:
             logger.error(f"RX thread error: {e}")
 
+    def update_mouse(self, dx: int, dy: int, buttons: int, scroll: int):
+        """由 app.py 每帧调用，更新鼠标状态供下一次控制指令使用"""
+        with self._mouse_lock:
+            self._mouse_dx += dx   # 累加，避免帧间丢失
+            self._mouse_dy += dy
+            self._mouse_buttons = buttons
+            self._scroll_delta = scroll
+
     def _send_control_command(self, seq: int):
         """发送控制指令 — READY 时发真实位图，否则发全零"""
         try:
@@ -172,11 +187,27 @@ class ControlSender:
             polled = self.keyboard.get_state()
             keyboard_state = polled if self.is_ready else self._zero_state
 
+            with self._mouse_lock:
+                mouse_dx = self._mouse_dx
+                mouse_dy = self._mouse_dy
+                mouse_buttons = self._mouse_buttons if self.is_ready else 0
+                scroll_delta = self._scroll_delta
+                self._mouse_dx = 0  # 消费累积量
+                self._mouse_dy = 0
+                self._scroll_delta = 0
+
+            if not self.is_ready:
+                mouse_dx = mouse_dy = scroll_delta = 0
+
             t1 = time.perf_counter()
             message = Protocol.build_control_command(
                 seq=seq,
                 t1=t1,
                 keyboard_state=keyboard_state,
+                mouse_dx=mouse_dx,
+                mouse_dy=mouse_dy,
+                mouse_buttons=mouse_buttons,
+                scroll_delta=scroll_delta,
             )
 
             sock.sendto(message, self.remote_addr)

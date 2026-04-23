@@ -24,14 +24,19 @@ MSG_TYPE_VIDEO_NACK = 0x07
 
 
 KEYBOARD_STATE_SIZE = 10
+MOUSE_DATA_SIZE = 6  # int16 dx + int16 dy + uint8 buttons + int8 scroll
 
 
 @dataclass
 class ControlCommand:
-    """控制指令 — 10 字节键盘位图"""
+    """控制指令 — 10 字节键盘位图 + 6 字节鼠标数据"""
     seq: int
     t1: float
     keyboard_state: bytes = b'\x00' * KEYBOARD_STATE_SIZE
+    mouse_dx: int = 0
+    mouse_dy: int = 0
+    mouse_buttons: int = 0
+    scroll_delta: int = 0
 
     def to_bytes(self) -> bytes:
         return bytes(self.keyboard_state[:KEYBOARD_STATE_SIZE]).ljust(KEYBOARD_STATE_SIZE, b'\x00')
@@ -39,7 +44,13 @@ class ControlCommand:
     @staticmethod
     def from_bytes(data: bytes) -> 'ControlCommand':
         kb = data[:KEYBOARD_STATE_SIZE] if len(data) >= KEYBOARD_STATE_SIZE else data.ljust(KEYBOARD_STATE_SIZE, b'\x00')
-        return ControlCommand(seq=0, t1=0.0, keyboard_state=kb)
+        mouse_dx = mouse_dy = mouse_buttons = scroll_delta = 0
+        if len(data) >= KEYBOARD_STATE_SIZE + MOUSE_DATA_SIZE:
+            mouse_dx, mouse_dy, mouse_buttons, scroll_delta = struct.unpack(
+                '=hhBb', data[KEYBOARD_STATE_SIZE:KEYBOARD_STATE_SIZE + MOUSE_DATA_SIZE])
+        return ControlCommand(seq=0, t1=0.0, keyboard_state=kb,
+                              mouse_dx=mouse_dx, mouse_dy=mouse_dy,
+                              mouse_buttons=mouse_buttons, scroll_delta=scroll_delta)
 
 
 @dataclass
@@ -58,14 +69,25 @@ class Protocol:
         seq: int,
         t1: float,
         keyboard_state: bytes = b'\x00' * KEYBOARD_STATE_SIZE,
+        mouse_dx: int = 0,
+        mouse_dy: int = 0,
+        mouse_buttons: int = 0,
+        scroll_delta: int = 0,
     ) -> bytes:
         """
         构建控制指令消息
 
         格式：
-        [Magic:2][Version:1][MsgType:1][Reserved:1][Seq:4][t1:8][KeyboardState:10][CRC32:4]
+        [Magic:2][Version:1][MsgType:1][Reserved:1][Seq:4][t1:8][KeyboardState:10]
+        [MouseDX:2][MouseDY:2][MouseButtons:1][ScrollDelta:1][CRC32:4]
+        总长度：37 字节
         """
-        payload = bytes(keyboard_state[:KEYBOARD_STATE_SIZE]).ljust(KEYBOARD_STATE_SIZE, b'\x00')
+        kb_payload = bytes(keyboard_state[:KEYBOARD_STATE_SIZE]).ljust(KEYBOARD_STATE_SIZE, b'\x00')
+        mouse_payload = struct.pack('=hhBb',
+                                    max(-32768, min(32767, mouse_dx)),
+                                    max(-32768, min(32767, mouse_dy)),
+                                    mouse_buttons & 0xFF,
+                                    max(-128, min(127, scroll_delta)))
 
         # 构建消息头（不含 CRC）
         header = struct.pack(
@@ -81,7 +103,7 @@ class Protocol:
         timestamp = struct.pack('=d', t1)
 
         # 组合消息（不含 CRC）
-        message_without_crc = header + timestamp + payload
+        message_without_crc = header + timestamp + kb_payload + mouse_payload
 
         # 计算 CRC32
         crc = zlib.crc32(message_without_crc) & 0xffffffff

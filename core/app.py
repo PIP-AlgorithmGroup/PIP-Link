@@ -2,6 +2,10 @@
 
 import ctypes
 import ctypes.wintypes
+import os
+import time as _time
+import cv2 as _cv2
+from typing import Optional
 
 # DPI awareness — must be set BEFORE pygame.init() / any SDL call
 try:
@@ -32,6 +36,7 @@ from ui.console import GameConsole
 from logic.param_manager import ParamManager
 from logic.status_monitor import StatusMonitor
 from logic.config_manager import ConfigManager
+from logic.audit_logger import AuditLogger
 
 
 class Application:
@@ -80,6 +85,7 @@ class Application:
         self.param_manager = ParamManager()
         self.status_monitor = StatusMonitor()
         self.config_manager = ConfigManager("config.json")
+        self.audit_logger = AuditLogger(log_dir="logs")
 
         # Developer console (overlay)
         self.console = GameConsole(font_mono=font_mono, font_body=font_body)
@@ -95,9 +101,16 @@ class Application:
         # State
         self.running = True
         self.fps_clock = pygame.time.Clock()
-        self._discovered_devices = []  # 发现的设备列表
-        self._discovered_services_raw = {}  # 原始服务数据
+        self._discovered_devices = []
+        self._discovered_services_raw = {}
         self._pending_window_mode = None  # 延迟到帧开头执行
+
+        # 录制状态
+        self._recorder: Optional[_cv2.VideoWriter] = None
+        self._recording = False
+        self._pending_screenshot = False
+        self._record_interval = 1.0 / 30.0  # 按 stream_fps 更新
+        self._record_next_t = 0.0
         self._pending_resolution = None
         self._current_window_mode = 0
 
@@ -129,7 +142,10 @@ class Application:
     def _on_session_state_changed(self, state):
         """Session state changed callback"""
         print(f"[App] Session state: {state.value}")
-        if state in (SessionState.IDLE, SessionState.DISCONNECTED):
+        if state == SessionState.CONNECTED:
+            self.audit_logger.log("connect", f"Session connected: {state.value}")
+        elif state in (SessionState.IDLE, SessionState.DISCONNECTED):
+            self.audit_logger.log("disconnect", f"Session state: {state.value}")
             self.video_renderer.frame_data = None
             self._force_not_ready()
 
@@ -183,6 +199,74 @@ class Application:
         else:
             self.imgui_ui.is_ready = False
             self.input_handler.set_mouse_locked(False)
+
+    def _start_recording(self):
+        w, h = pygame.display.get_window_size()
+        fmt_idx = self.param_manager.get_param("recording_format") or 0
+        fmt_map = {0: 'mp4v', 1: 'XVID', 2: 'XVID'}
+        ext_map = {0: '.mp4', 1: '.mkv', 2: '.avi'}
+        fourcc = _cv2.VideoWriter_fourcc(*fmt_map.get(fmt_idx, 'mp4v'))
+        fps = self.param_manager.get_param("stream_fps") or 30
+        ts = _time.strftime("%Y%m%d_%H%M%S")
+        save_dir = self.param_manager.get_param("save_dir") or "."
+        path = os.path.join(save_dir, "recordings", f"rec_{ts}{ext_map.get(fmt_idx, '.mp4')}")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        self._recorder = _cv2.VideoWriter(path, fourcc, fps, (w, h))
+        self._recording = True
+        self._record_interval = 1.0 / fps
+        self._record_next_t = _time.monotonic()
+        print(f"[App] Recording started: {path}")
+        self.audit_logger.log("recording", f"start: {path}")
+
+    def _stop_recording(self):
+        if self._recorder:
+            self._recorder.release()
+            self._recorder = None
+        self._recording = False
+        print("[App] Recording stopped")
+        self.audit_logger.log("recording", "stop")
+
+    def _take_screenshot(self):
+        self._pending_screenshot = True
+
+    def _grab_gl_frame(self) -> 'np.ndarray':
+        w, h = pygame.display.get_window_size()
+        data = glReadPixels(0, 0, w, h, GL_BGR, GL_UNSIGNED_BYTE)
+        frame = np.frombuffer(data, dtype=np.uint8).reshape(h, w, 3)
+        frame = np.flipud(frame).copy()
+
+        # 叠加鼠标光标小圆点图案
+        mx, my = pygame.mouse.get_pos()
+        if 0 <= mx < w and 0 <= my < h:
+            # 中心主点
+            _cv2.circle(frame, (mx, my), 4, (0, 220, 255), -1, lineType=_cv2.LINE_AA)
+            # 四方向卫星小点（半透明叠加）
+            overlay = frame.copy()
+            for dx, dy in ((0, -9), (0, 9), (-9, 0), (9, 0)):
+                px, py = mx + dx, my + dy
+                if 0 <= px < w and 0 <= py < h:
+                    _cv2.circle(overlay, (px, py), 2, (0, 220, 255), -1, lineType=_cv2.LINE_AA)
+            _cv2.addWeighted(overlay, 0.45, frame, 0.55, 0, frame)
+
+        return frame
+
+    def _open_root_folder(self):
+        import threading
+        def _pick():
+            try:
+                import tkinter as tk
+                from tkinter import filedialog
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                folder = filedialog.askdirectory(title="选择保存目录")
+                root.destroy()
+                if folder:
+                    self.param_manager.set_param("save_dir", folder)
+                    print(f"[App] Save dir: {folder}")
+            except Exception as e:
+                print(f"[App] Folder picker error: {e}")
+        threading.Thread(target=_pick, daemon=True).start()
 
     def _on_services_discovered(self, services: dict):
         """服务发现回调 — 增量更新（搜到一个就显示一个）"""
@@ -319,6 +403,11 @@ class Application:
             self.input_handler.set_bindings(value)
         elif key in ["mouse_sensitivity", "fov", "invert_pitch", "video_quality", "recording_enabled"]:
             self.config_manager.save()
+
+        # Audit log for significant param changes (skip noisy UI-only keys)
+        _audit_skip = {"key_bindings", "show_performance_graph", "show_debug_info"}
+        if key not in _audit_skip:
+            self.audit_logger.log("param_change", f"{key}={value}")
 
         # Fullscreen toggle — deferred to next frame start
         if key == "window_mode":
@@ -536,6 +625,17 @@ class Application:
                 dx, dy = self.input_handler.get_mouse_delta()
                 buttons = self.input_handler.get_mouse_buttons()
                 sensitivity = self.param_manager.get_param("mouse_sensitivity")
+                scroll = self.input_handler.get_scroll()
+                side = self.input_handler.mouse_side_buttons
+                btn_mask = (
+                    (1 if buttons[0] else 0) |
+                    (2 if buttons[1] else 0) |
+                    (4 if buttons[2] else 0) |
+                    (8 if side[0] else 0) |
+                    (16 if side[1] else 0)
+                )
+                if self.session.control_sender:
+                    self.session.control_sender.update_mouse(dx, dy, btn_mask, scroll)
 
             # 3. Get latest frame and decode
             if self.session.video_receiver:
@@ -552,6 +652,8 @@ class Application:
             stats = self.session.get_statistics()
             stats["session_state"] = self.session.state.value
             stats["discovered_devices"] = self._discovered_devices
+            # 同步带宽估算到 status_monitor（供历史采样使用）
+            self.status_monitor.bandwidth_kbps = self.imgui_ui._bandwidth_kbps
             self.status_monitor.update(stats)
             status = self.status_monitor.get_status()
 
@@ -585,11 +687,18 @@ class Application:
                         "select_device": self._on_select_device,
                         "quit": lambda: setattr(self, "running", False),
                         "start_key_capture": self.input_handler.start_key_capture,
+                        "start_recording": self._start_recording,
+                        "stop_recording": self._stop_recording,
+                        "screenshot": self._take_screenshot,
+                        "open_recordings_folder": self._open_root_folder,
+                        "get_history": self.status_monitor.get_history,
+                        "audit_logger": self.audit_logger,
                     },
                     params=self.param_manager.get_all_params(),
                     on_param_change=self._on_param_change,
                     stats=stats,
                     live_status=status,
+                    console_height=self.console._anim_h,
                 )
             if not self.imgui_ui.show_menu:
                 self.imgui_ui.draw_status_bar(status)
@@ -617,10 +726,32 @@ class Application:
             else:
                 pygame.key.stop_text_input()
 
-            # 8. Swap buffers
+            # 8. Capture GL frame for recording / screenshot (before flip)
+            if self._recording or self._pending_screenshot:
+                now = _time.monotonic()
+                need_record = self._recording and self._recorder and now >= self._record_next_t
+                if need_record or self._pending_screenshot:
+                    gl_frame = self._grab_gl_frame()
+                    if need_record:
+                        self._recorder.write(gl_frame)
+                        self._record_next_t += self._record_interval
+                        if self._record_next_t < now:
+                            self._record_next_t = now + self._record_interval
+                    if self._pending_screenshot:
+                        self._pending_screenshot = False
+                        save_dir = self.param_manager.get_param("save_dir") or "."
+                        shot_dir = os.path.join(save_dir, "screenshots")
+                        os.makedirs(shot_dir, exist_ok=True)
+                        ts = _time.strftime("%Y%m%d_%H%M%S")
+                        path = os.path.join(shot_dir, f"shot_{ts}.png")
+                        _cv2.imwrite(path, gl_frame)
+                        print(f"[App] Screenshot saved: {path}")
+                        self.audit_logger.log("screenshot", path)
+
+            # 9. Swap buffers
             pygame.display.flip()
 
-            # 9. Frame rate control
+            # 10. Frame rate control
             self.fps_clock.tick(Config.TARGET_FPS)
 
         self.session.disconnect()

@@ -21,6 +21,7 @@ class ParamManager:
             "recording_enabled": False,
             "recording_bitrate": 5000,  # kbps
             "recording_format": 0,  # 0: MP4, 1: MKV, 2: AVI
+            "save_dir": "",  # 空字符串 = 项目根目录
 
             # Debug
             "show_performance_graph": False,
@@ -32,6 +33,12 @@ class ParamManager:
             "stream_fps": 30,              # target fps
             "stream_fec_enabled": False,
             "stream_fec_redundancy": 0.20,
+
+            # Image enhancement (remote — synced to air unit)
+            "brightness": 0,   # -100~100
+            "contrast": 0,     # -100~100
+            "sharpness": 0,    # 0~100
+            "denoise": 0,      # 0~100
         }
 
         # Resolution mapping: (width, height, aspect_ratio_label)
