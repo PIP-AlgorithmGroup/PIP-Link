@@ -2,6 +2,7 @@
 
 import ctypes
 import ctypes.wintypes
+import os
 import time as _time
 from typing import Optional
 
@@ -71,6 +72,17 @@ class Application:
         self._display_flags = DOUBLEBUF | OPENGL
         pygame.display.set_mode((Config.RENDER_WIDTH, Config.RENDER_HEIGHT), self._display_flags)
         pygame.display.set_caption("PIP-Link Ground Unit")
+
+        # 设置窗口图标（优先 icon.png，fallback icon.ico）
+        try:
+            from config import _asset
+            _icon_path = _asset("assets/icon.png")
+            if not os.path.exists(_icon_path):
+                _icon_path = _asset("assets/icon.ico")
+            _icon = pygame.image.load(_icon_path)
+            pygame.display.set_icon(_icon)
+        except Exception as _e:
+            print(f"[App] Icon load failed: {_e}")
 
         # OpenGL — 正交 2D 投影
         glClearColor(0.0, 0.0, 0.0, 1.0)

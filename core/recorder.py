@@ -65,9 +65,21 @@ class Recorder:
             try:
                 import tkinter as tk
                 from tkinter import filedialog
+                from config import _asset
                 root = tk.Tk()
                 root.withdraw()
                 root.attributes("-topmost", True)
+                # 设置窗口图标（优先 icon.png，fallback icon.ico）
+                try:
+                    _icon_png = _asset("assets/icon.png")
+                    _icon_ico = _asset("assets/icon.ico")
+                    if os.path.exists(_icon_png):
+                        _img = tk.PhotoImage(file=_icon_png)
+                        root.iconphoto(True, _img)
+                    elif os.path.exists(_icon_ico):
+                        root.iconbitmap(_icon_ico)
+                except Exception:
+                    pass
                 folder = filedialog.askdirectory(title="选择保存目录")
                 root.destroy()
                 if folder:

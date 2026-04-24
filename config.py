@@ -1,5 +1,17 @@
 """Configuration"""
 
+import os
+import sys
+
+def _asset(rel: str) -> str:
+    """解析资源路径：打包后从 _MEIPASS 取，开发时从脚本目录取"""
+    if getattr(sys, "frozen", False):
+        base = sys._MEIPASS
+    else:
+        base = os.path.dirname(os.path.abspath(__file__))
+    return os.path.join(base, rel)
+
+
 class Config:
     # UI config
     RENDER_WIDTH = 1600
@@ -12,9 +24,9 @@ class Config:
     FONT_SIZE_TITLE = 28
     FONT_SIZE_BODY = 20
     FONT_SIZE_MONO = 22
-    FONT_PATH = "C:\\Windows\\Fonts\\segoeui.ttf"
-    FONT_PATH_BOLD = "C:\\Windows\\Fonts\\segoeuib.ttf"
-    FONT_PATH_MONO = "C:\\Windows\\Fonts\\consola.ttf"
+    FONT_PATH = _asset("assets/fonts/segoeui.ttf")
+    FONT_PATH_BOLD = _asset("assets/fonts/segoeuib.ttf")
+    FONT_PATH_MONO = _asset("assets/fonts/consola.ttf")
 
     # Network config
     MDNS_SERVICE_NAME = "_pip-link._udp"
