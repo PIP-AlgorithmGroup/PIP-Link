@@ -17,6 +17,8 @@ Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=admin
+DisableDirPage=no
+DisableProgramGroupPage=no
 
 ; 许可协议
 LicenseFile=LICENSE
