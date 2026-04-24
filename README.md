@@ -15,9 +15,7 @@
 
 ---
 
-> **📸 截图预留区 — 主界面**
->
-> *[在此处插入：连接成功后的主视频画面截图，展示状态栏与 HUD 覆盖层]*
+![001](D:\~Document\_$.Project\PIP-Link\assets\imgs\main_001.png)
 
 ---
 
@@ -206,9 +204,7 @@ python main.py
 
 ## 连接教程
 
-> **📸 截图预留区 — CONNECTION 标签页**
->
-> *[在此处插入：CONNECTION 标签页截图，展示设备列表和连接按钮]*
+![connect_001](D:\~Document\_$.Project\PIP-Link\assets\imgs\connect_001.png)
 
 ### 方式一：自动发现（推荐）
 
@@ -252,10 +248,10 @@ python main.py
 
 | 按键 | 功能 |
 |---|---|
-| `Tab` | 打开 / 关闭菜单（同时切换控制模式） |
-| `F1` | 显示 / 隐藏开发者控制台 |
-| `F2` | 显示 / 隐藏 HUD 状态栏 |
-| `F3` | 切换就绪（Ready）状态 |
+| `ESC` | 打开 / 关闭菜单（同时切换控制模式） |
+| `~ ` | 显示 / 隐藏开发者控制台 |
+| `TAB` | 显示 / 隐藏 HUD 状态栏 |
+| `F5` | 切换就绪（Ready）状态 |
 
 > 所有快捷键均可在菜单 **CONTROL SETTINGS** 标签页中自定义。
 
@@ -263,21 +259,23 @@ python main.py
 
 连接成功后，按以下步骤进入控制模式：
 
-1. 按 `Tab` **关闭菜单**，回到视频画面
-2. 按 `F3`（或菜单内配置的 Ready 键）进入**就绪状态**
+1. 按 `ESC` **关闭菜单**，回到视频画面
+2. 按 `F5`（或菜单内配置的 Ready 键）进入**就绪状态**
    - 状态栏右侧指示灯变为绿色，提示"READY"
    - 鼠标自动锁定在窗口内（相对模式）
 3. 此后所有键盘和鼠标输入实时透传至机载端
 
-> **退出控制模式**：按 `Tab` 打开菜单，鼠标自动解锁，键盘恢复本地输入。
+> **退出控制模式**：按 `ESC` 打开菜单，鼠标自动解锁，键盘恢复本地输入；或按`F5`进入NOT READY状态。
 
 ---
 
-> **📸 截图预留区 — 控制模式 HUD**
+> <img src="D:\~Document\_$.Project\PIP-Link\assets\imgs\hud_001.png" alt="hud_001" style="zoom:50%;" />
 >
-> *[在此处插入：控制模式下的 HUD 截图，展示键盘状态标签、鼠标摇杆可视化、延迟/FPS 信息]*
+> <img src="D:\~Document\_$.Project\PIP-Link\assets\imgs\hud_002.png" alt="hud_002" style="zoom:80%;" />
 
 ---
+
+
 
 ### HUD 说明
 
@@ -286,11 +284,11 @@ python main.py
 - **左上角**：当前会话状态（CONNECTED / READY）、延迟（ms）、帧率（FPS）
 - **右下角**：键盘当前按键状态标签、鼠标移动方向摇杆
 
-按 `F2` 可随时隐藏/显示 HUD，不影响控制输入。
+按 `TAB` 可随时隐藏/显示 HUD，不影响控制输入。
 
 ### 开发者控制台
 
-按 `F1` 打开控制台（界面底部滑入），支持以下内置命令：
+按 `~` 打开控制台（界面底部滑入），支持以下内置命令：
 
 | 命令 | 功能 |
 |---|---|
@@ -340,9 +338,7 @@ python main.py
 
 ### VIDEO — 视频与流参数
 
-> **📸 截图预留区 — VIDEO 标签页**
->
-> *[在此处插入：VIDEO 标签页截图]*
+![recording_001](D:\~Document\_$.Project\PIP-Link\assets\imgs\recording_001.png)
 
 调整视频编码和传输参数，修改后实时同步至机载端生效。
 
@@ -374,9 +370,9 @@ python main.py
 
 ### DIAGNOSTICS — 诊断与性能
 
-> **📸 截图预留区 — DIAGNOSTICS 标签页**
->
-> *[在此处插入：DIAGNOSTICS 标签页截图，展示延迟曲线和丢包统计]*
+![diag_001](D:\~Document\_$.Project\PIP-Link\assets\imgs\diag_001.png)
+
+![diag_002](D:\~Document\_$.Project\PIP-Link\assets\imgs\diag_002.png)
 
 实时展示连接质量与系统性能指标。
 
@@ -399,9 +395,9 @@ python main.py
 | 控件 | 说明 |
 |---|---|
 | Toggle Menu | 打开/关闭菜单的按键（默认 `Tab`） |
-| Toggle Console | 控制台开关键（默认 `F1`） |
-| Toggle HUD | HUD 开关键（默认 `F2`） |
-| Ready | 就绪状态切换键（默认 `F3`） |
+| Toggle Console | 控制台开关键（默认 `~`） |
+| Toggle HUD | HUD 开关键（默认 `TAB`） |
+| Ready | 就绪状态切换键（默认 `ESC`） |
 | **[Click to Bind]** | 点击后按下任意键完成绑定 |
 
 ---
@@ -422,9 +418,7 @@ python main.py
 
 ### AUDIT — 审计日志
 
-> **📸 截图预留区 — AUDIT 标签页**
->
-> *[在此处插入：AUDIT 标签页截图]*
+![audit_001](D:\~Document\_$.Project\PIP-Link\assets\imgs\audit_001.png)
 
 显示本次运行的操作审计记录，包含时间戳和事件类型：
 
