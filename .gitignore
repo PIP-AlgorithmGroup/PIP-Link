@@ -24,10 +24,6 @@ logs/
 Thumbs.db
 
 # pyinstaller
-installer
-version_info.txt
-installer.iss
-*.spec
-PIP-Link.spec
-PACKAGING_WINDOWS.md
+installer/
+packaging/installer
 .claude/
