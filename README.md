@@ -15,7 +15,7 @@
 
 ---
 
-![001](D:\~Document\_$.Project\PIP-Link\assets\imgs\main_001.png)
+![001](.\assets\imgs\main_001.png)
 
 ---
 
@@ -204,7 +204,7 @@ python main.py
 
 ## 连接教程
 
-![connect_001](D:\~Document\_$.Project\PIP-Link\assets\imgs\connect_001.png)
+![connect_001](.\assets\imgs\connect_001.png)
 
 ### 方式一：自动发现（推荐）
 
@@ -269,9 +269,9 @@ python main.py
 
 ---
 
-> <img src="D:\~Document\_$.Project\PIP-Link\assets\imgs\hud_001.png" alt="hud_001" style="zoom:50%;" />
+> <img src=".\assets\imgs\hud_001.png" alt="hud_001" style="zoom:50%;" />
 >
-> <img src="D:\~Document\_$.Project\PIP-Link\assets\imgs\hud_002.png" alt="hud_002" style="zoom:80%;" />
+> <img src=".\assets\imgs\hud_002.png" alt="hud_002" style="zoom:80%;" />
 
 ---
 
@@ -338,7 +338,7 @@ python main.py
 
 ### VIDEO — 视频与流参数
 
-![recording_001](D:\~Document\_$.Project\PIP-Link\assets\imgs\recording_001.png)
+![recording_001](.\assets\imgs\recording_001.png)
 
 调整视频编码和传输参数，修改后实时同步至机载端生效。
 
@@ -370,9 +370,9 @@ python main.py
 
 ### DIAGNOSTICS — 诊断与性能
 
-![diag_001](D:\~Document\_$.Project\PIP-Link\assets\imgs\diag_001.png)
+![diag_001](.\assets\imgs\diag_001.png)
 
-![diag_002](D:\~Document\_$.Project\PIP-Link\assets\imgs\diag_002.png)
+![diag_002](.\assets\imgs\diag_002.png)
 
 实时展示连接质量与系统性能指标。
 
@@ -418,7 +418,7 @@ python main.py
 
 ### AUDIT — 审计日志
 
-![audit_001](D:\~Document\_$.Project\PIP-Link\assets\imgs\audit_001.png)
+![audit_001](.\assets\imgs\audit_001.png)
 
 显示本次运行的操作审计记录，包含时间戳和事件类型：
 
