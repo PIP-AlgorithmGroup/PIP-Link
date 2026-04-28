@@ -1,31 +1,128 @@
-"""Reed-Solomon FEC 编解码器"""
+"""Reed-Solomon FEC 编解码器（基于 cm256 Cauchy Matrix GF(2^8)）
 
+libcm256 编译安装：
+    git clone https://github.com/catid/cm256 && cd cm256
+    mkdir build && cd build
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    make && sudo make install
+    sudo ldconfig
+"""
+
+import ctypes
+import ctypes.util
 import math
 import logging
-import numpy as np
-from typing import List, Dict, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-try:
-    from reedsolo import RSCodec, ReedSolomonError
-    FEC_AVAILABLE = True
-except ImportError:
-    FEC_AVAILABLE = False
-    logger.warning("reedsolo not installed, FEC disabled")
+
+# ---------------------------------------------------------------------------
+# cm256 ctypes 绑定
+# ---------------------------------------------------------------------------
+
+class _CM256Params(ctypes.Structure):
+    _fields_ = [
+        ("OriginalCount", ctypes.c_int),
+        ("RecoveryCount", ctypes.c_int),
+        ("BlockBytes",    ctypes.c_int),
+    ]
 
 
-def _xor_chunks(chunks: List[bytes], size: int) -> bytes:
-    """XOR all chunks together (numpy-accelerated)."""
-    result = np.zeros(size, dtype=np.uint8)
-    for c in chunks:
-        arr = np.frombuffer(c, dtype=np.uint8)
-        result[:len(arr)] ^= arr
-    return result.tobytes()
+class _CM256Block(ctypes.Structure):
+    """
+    对应 C 结构体：
+        struct cm256_block { void* Block; uint8_t Index; };
+    64-bit 下 sizeof = 16（7 字节尾填充），ctypes 默认对齐与编译器一致。
+    """
+    _fields_ = [
+        ("Block", ctypes.c_void_p),
+        ("Index", ctypes.c_uint8),
+    ]
 
+
+_CM256_VERSION = 2  # cm256.h: #define CM256_VERSION 2
+
+
+def _load_cm256() -> Optional[ctypes.CDLL]:
+    candidates = [
+        "libcm256.so",
+        "libcm256.so.1",
+        ctypes.util.find_library("cm256"),
+    ]
+    for name in candidates:
+        if name is None:
+            continue
+        try:
+            lib = ctypes.CDLL(name)
+            # cm256_init 是宏：#define cm256_init() cm256_init_(CM256_VERSION)
+            # 实际导出符号是 cm256_init_，返回 bool（true = 失败）
+            lib.cm256_init_.restype  = ctypes.c_bool
+            lib.cm256_init_.argtypes = [ctypes.c_int]
+            lib.cm256_encode.restype  = ctypes.c_int
+            lib.cm256_encode.argtypes = [
+                _CM256Params,
+                ctypes.POINTER(_CM256Block),
+                ctypes.c_void_p,
+            ]
+            lib.cm256_decode.restype  = ctypes.c_int
+            lib.cm256_decode.argtypes = [
+                _CM256Params,
+                ctypes.POINTER(_CM256Block),
+            ]
+            if lib.cm256_init_(_CM256_VERSION):   # true = 失败
+                logger.warning("cm256_init_ failed for %s (SSSE3/NEON not supported?)", name)
+                continue
+            logger.info("cm256 loaded: %s", name)
+            return lib
+        except OSError:
+            continue
+    return None
+
+
+_cm256: Optional[ctypes.CDLL] = _load_cm256()
+CM256_AVAILABLE: bool = _cm256 is not None
+FEC_AVAILABLE: bool = CM256_AVAILABLE   # 向后兼容别名
+
+if not CM256_AVAILABLE:
+    logger.warning(
+        "libcm256.so not found — FEC disabled. "
+        "Build: https://github.com/catid/cm256"
+    )
+
+
+# ---------------------------------------------------------------------------
+# 内部：构造可写 block 数组
+# ---------------------------------------------------------------------------
+
+def _alloc_block_array(
+    chunks: List[bytes],
+    indices: List[int],
+    block_size: int,
+) -> tuple:
+    """
+    为每个 chunk 分配大小为 block_size 的可写 C buffer（零填充），
+    返回 (CM256Block_array, buffer_list)。
+    调用方必须持有 buffer_list 引用，防止 GC 回收。
+    """
+    n = len(chunks)
+    arr = (_CM256Block * n)()
+    bufs: List[ctypes.Array] = []
+    for i, chunk in enumerate(chunks):
+        buf = ctypes.create_string_buffer(block_size)
+        buf.raw = chunk[:block_size].ljust(block_size, b'\x00')
+        bufs.append(buf)
+        arr[i].Block = ctypes.cast(buf, ctypes.c_void_p)
+        arr[i].Index = indices[i]
+    return arr, bufs
+
+
+# ---------------------------------------------------------------------------
+# FECEncoder
+# ---------------------------------------------------------------------------
 
 class FECEncoder:
-    """FEC 编码器 - 对一组 data chunks 生成 parity chunks"""
+    """FEC 编码器：对 N 个 data chunks 生成 K 个 parity chunks（cm256）"""
 
     def __init__(self, redundancy: float = 0.2):
         self.redundancy = redundancy
@@ -33,117 +130,124 @@ class FECEncoder:
     def encode(self, chunks: List[bytes]) -> List[bytes]:
         """
         输入 N 个 data chunks，输出 N+K 个 chunks（原始 + parity）。
-        K = ceil(N * redundancy), 至少 1。
+        K = max(1, ceil(N * redundancy))，约束 N+K ≤ 256。
+        cm256 不可用时降级为直接返回原始 chunks（FEC 关闭）。
         """
-        if not FEC_AVAILABLE or not chunks:
+        if not CM256_AVAILABLE or not chunks:
             return chunks
 
         n = len(chunks)
         k = max(1, math.ceil(n * self.redundancy))
-        max_size = max(len(c) for c in chunks)
+        k = min(k, 256 - n)   # N+K ≤ 256
+        if k <= 0:
+            return chunks
 
-        # k=1: fast XOR parity (single pass, no RS overhead)
-        if k == 1:
-            parity = _xor_chunks(chunks, max_size)
-            return chunks + [parity]
+        block_size = max(len(c) for c in chunks)
 
-        # k>1: per-column RS encoding (slow but correct)
-        padded = [c.ljust(max_size, b'\x00') for c in chunks]
-        rs = RSCodec(k)
-        parity_chunks = [bytearray(max_size) for _ in range(k)]
+        orig_arr, orig_bufs = _alloc_block_array(chunks, list(range(n)), block_size)
 
-        for col in range(max_size):
-            column_data = bytes(padded[row][col] for row in range(n))
-            encoded = rs.encode(column_data)
-            parity_bytes = encoded[n:]
-            for p_idx in range(k):
-                parity_chunks[p_idx][col] = parity_bytes[p_idx]
+        # K 个 recovery block 连续存放
+        recovery_buf = ctypes.create_string_buffer(k * block_size)
 
-        return chunks + [bytes(p) for p in parity_chunks]
+        params = _CM256Params(n, k, block_size)
+        ret = _cm256.cm256_encode(
+            params,
+            orig_arr,
+            ctypes.cast(recovery_buf, ctypes.c_void_p),
+        )
+        if ret != 0:
+            logger.error("cm256_encode failed: %d", ret)
+            return chunks
 
+        # data chunks 保留原始长度（不零填充），parity 固定为 block_size
+        result: List[bytes] = list(chunks)
+        for i in range(k):
+            offset = i * block_size
+            result.append(bytes(recovery_buf[offset : offset + block_size]))
+
+        return result
+
+
+# ---------------------------------------------------------------------------
+# FECDecoder
+# ---------------------------------------------------------------------------
 
 class FECDecoder:
-    """FEC 解码器 - 从部分 chunks 恢复完整数据"""
+    """FEC 解码器：从任意 N 个 chunks（含 parity）恢复原始数据（cm256）"""
 
     def __init__(self, redundancy: float = 0.2):
         self.redundancy = redundancy
 
-    def decode(self, received: Dict[int, bytes], n_data: int, n_total: int,
-               chunk_sizes: Optional[Dict[int, int]] = None) -> Optional[List[bytes]]:
+    def decode(
+        self,
+        received: Dict[int, bytes],
+        n_data: int,
+        n_total: int,
+        chunk_sizes: Optional[Dict[int, int]] = None,
+    ) -> Optional[List[bytes]]:
         """
-        尝试从收到的 chunks 恢复原始 N 个 data chunks。
-        """
-        if not FEC_AVAILABLE:
-            return None
+        received    : {chunk_idx: chunk_bytes}（data + parity 混合）
+        n_data      : 原始 data chunk 数（wire 上的 orig_chunks 字段）
+        n_total     : 含 parity 的总 chunk 数（wire 上的 total_chunks 字段）
+        chunk_sizes : {chunk_idx: 实际字节数}，用于裁去 data chunk 的尾部零填充
 
-        k = n_total - n_data
+        返回按序排列的 n_data 个 data chunks，无法恢复时返回 None。
+        """
+        if not CM256_AVAILABLE:
+            return None
         if len(received) < n_data:
             return None
 
-        # 如果已有所有 data chunks，直接返回
-        data_chunks = {}
-        for idx in range(n_data):
-            if idx in received:
-                data_chunks[idx] = received[idx]
-        if len(data_chunks) == n_data:
-            return [data_chunks[i] for i in range(n_data)]
-
-        # k=1 XOR fast path: recover the single missing data chunk
-        if k == 1:
-            missing = [i for i in range(n_data) if i not in received]
-            parity_idx = n_data  # parity is at index n_data
-            if len(missing) == 1 and parity_idx in received:
-                max_size = max(len(v) for v in received.values())
-                present = [received[i].ljust(max_size, b'\x00')
-                           for i in range(n_data) if i in received]
-                parity = received[parity_idx].ljust(max_size, b'\x00')
-                recovered = _xor_chunks(present + [parity], max_size)
-                orig_size = chunk_sizes.get(missing[0], max_size) if chunk_sizes else max_size
-                result = []
-                for i in range(n_data):
-                    if i == missing[0]:
-                        result.append(recovered[:orig_size])
-                    elif chunk_sizes and i in chunk_sizes:
-                        result.append(received[i][:chunk_sizes[i]])
-                    else:
-                        result.append(received[i])
-                return result
-            return None
-
-        # k>1: per-column RS decoding
-        max_size = max(len(v) for v in received.values())
-        padded_received = {}
-        for idx, chunk in received.items():
-            padded_received[idx] = chunk.ljust(max_size, b'\x00')
-
-        rs = RSCodec(k)
-        recovered = [bytearray(max_size) for _ in range(n_data)]
-
-        try:
-            for col in range(max_size):
-                full_column = bytearray(n_total)
-                erase_pos = []
-                for idx in range(n_total):
-                    if idx in padded_received:
-                        full_column[idx] = padded_received[idx][col]
-                    else:
-                        erase_pos.append(idx)
-
-                if len(erase_pos) > k:
-                    return None
-
-                decoded = rs.decode(bytes(full_column), erase_pos=erase_pos)
-                for row in range(n_data):
-                    recovered[row][col] = decoded[0][row]
-
+        # 快速路径：已拥有全部 data chunks，跳过 cm256
+        if all(i in received for i in range(n_data)):
             result = []
             for i in range(n_data):
+                data = received[i]
                 if chunk_sizes and i in chunk_sizes:
-                    result.append(bytes(recovered[i][:chunk_sizes[i]]))
-                else:
-                    result.append(bytes(recovered[i]))
+                    data = data[:chunk_sizes[i]]
+                result.append(data)
             return result
 
-        except (ReedSolomonError, Exception) as e:
-            logger.debug(f"FEC decode failed: {e}")
+        k = n_total - n_data
+        if k <= 0:
             return None
+
+        # block_size：优先从 parity block 推断（parity 永远是完整 block_size）
+        block_size = 0
+        for idx in range(n_data, n_total):
+            if idx in received:
+                block_size = len(received[idx])
+                break
+        if block_size == 0:
+            # 退化：所有收到的都是 data block（不应走到这里，防御）
+            block_size = max(len(v) for v in received.values())
+
+        # 取任意 n_data 个 block（cm256 要求恰好 n_data 个）
+        selected = list(received.items())[:n_data]
+
+        block_arr, bufs = _alloc_block_array(
+            [data for _, data in selected],
+            [idx  for idx, _ in selected],
+            block_size,
+        )
+
+        params = _CM256Params(n_data, k, block_size)
+        ret = _cm256.cm256_decode(params, block_arr)
+        if ret != 0:
+            logger.debug("cm256_decode failed: %d", ret)
+            return None
+
+        # decode 后：block_arr[slot].Index = 该 slot 恢复的原始 block 编号
+        #            bufs[slot].raw         = 对应恢复数据
+        result_map: Dict[int, bytes] = {}
+        for slot in range(n_data):
+            orig_idx = block_arr[slot].Index
+            data = bytes(bufs[slot].raw)
+            if chunk_sizes and orig_idx in chunk_sizes:
+                data = data[:chunk_sizes[orig_idx]]
+            result_map[orig_idx] = data
+
+        if len(result_map) < n_data or not all(i in result_map for i in range(n_data)):
+            return None
+
+        return [result_map[i] for i in range(n_data)]
