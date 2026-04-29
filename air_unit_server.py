@@ -165,8 +165,11 @@ class AdaptiveEncoder:
             blurred = cv2.GaussianBlur(frame, (0, 0), 3)
             frame = cv2.addWeighted(frame, 1.0 + strength, blurred, -strength, 0)
         if self.denoise > 0:
-            h_val = max(1, int(self.denoise * 0.1))
-            frame = cv2.fastNlMeansDenoisingColored(frame, None, h_val, h_val, 7, 21)
+            # 轻量高斯降噪：denoise 1-100 映射到 sigma 0.5-3.0
+            # 避免 fastNlMeansDenoisingColored（720p 耗时 300-500ms，不适合实时）
+            sigma = 0.5 + self.denoise / 100.0 * 2.5
+            ksize = int(sigma * 3) * 2 + 1
+            frame = cv2.GaussianBlur(frame, (ksize, ksize), sigma)
         return frame
 
     def encode(self, frame_id: int) -> bytes:
@@ -174,7 +177,7 @@ class AdaptiveEncoder:
         frame = self.generate_dynamic_frame(frame_id)
 
         _, jpeg_data = cv2.imencode('.jpg', frame,
-                                     [cv2.IMWRITE_JPEG_QUALITY, self.quality])
+                                    [cv2.IMWRITE_JPEG_QUALITY, self.quality])
         encoded = jpeg_data.tobytes()
 
         self._ema_size = self._ema_alpha * len(encoded) + (1 - self._ema_alpha) * self._ema_size
@@ -544,7 +547,7 @@ class AirUnitServer:
     def _video_sender_thread(self):
         """视频发送线程 - 自适应码率彩条测试画面"""
         logger.info(f"Video sender started (target: {self.encoder.target_bitrate_kbps} kbps, "
-                     f"{self.fps} fps, Q{self.encoder.quality})")
+                    f"{self.fps} fps, Q{self.encoder.quality})")
         frame_id = 0
         bytes_sent_window = 0
         window_start = time.time()
@@ -675,9 +678,9 @@ class AirUnitServer:
     def print_statistics(self):
         logger.info("=" * 50)
         logger.info(f"Control: {self.control_commands_received} cmds, "
-                     f"HB: {self.heartbeats_received}, ACK: {self.acks_sent}, "
-                     f"Params: {self.param_updates_received}, "
-                     f"Video: {self.video_frames_sent} sent / {self.video_frames_acked} acked")
+                    f"HB: {self.heartbeats_received}, ACK: {self.acks_sent}, "
+                    f"Params: {self.param_updates_received}, "
+                    f"Video: {self.video_frames_sent} sent / {self.video_frames_acked} acked")
         if self.client_ip:
             logger.info(f"Client: {self.client_ip}")
         logger.info("=" * 50)
