@@ -4,7 +4,7 @@
 
 **高性能低延迟远程桌面控制系统**
 
-[![Version](https://img.shields.io/badge/version-v2.0.0-blue.svg)](https://github.com/P1ne4pp1e/PIP-Link/releases)
+[![Version](https://img.shields.io/badge/version-v2.1.0-blue.svg)](https://github.com/PIP-AlgorithmGroup/PIP-Link/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows-lightgrey.svg)]()
 [![Python](https://img.shields.io/badge/python-3.10%2B-yellow.svg)]()
@@ -174,7 +174,7 @@ PIP-Link/
 **第一步：克隆仓库**
 
 ```bash
-git clone https://github.com/P1ne4pp1e/PIP-Link.git
+git clone https://github.com/PIP-AlgorithmGroup/PIP-Link.git
 cd PIP-Link
 ```
 
@@ -195,7 +195,7 @@ python main.py
 
 ### 安装包安装（仅地面站）
 
-从 [Releases](https://github.com/P1ne4pp1e/PIP-Link/releases) 页面下载最新版 `PIP-Link-Setup-v2.0.0.exe`，按向导安装即可，无需配置 Python 环境。
+从 [Releases](https://github.com/PIP-AlgorithmGroup/PIP-Link/releases) 页面下载最新版 `PIP-Link-Setup-v2.0.0.exe`，按向导安装即可，无需配置 Python 环境。
 
 ---
 
@@ -235,7 +235,7 @@ mkdir -p ~/ros2_ws/src
 cd ~/ros2_ws/src
 
 # 克隆 PIP-Link 仓库
-git clone https://github.com/P1ne4pp1e/PIP-Link.git
+git clone https://github.com/PIP-AlgorithmGroup/PIP-Link.git
 cd PIP-Link
 
 # 复制 ROS 2 包到工作空间
@@ -727,8 +727,8 @@ You may obtain a copy of the License at
 ## 联系方式
 
 - **邮箱**：mabolong2006@outlook.com
-- **GitHub Issues**：[提交 Bug 或功能请求](https://github.com/P1ne4pp1e/PIP-Link/issues)
-- **Releases**：[下载最新版本](https://github.com/P1ne4pp1e/PIP-Link/releases)
+- **GitHub Issues**：[提交 Bug 或功能请求](https://github.com/PIP-AlgorithmGroup/PIP-Link/issues)
+- **Releases**：[下载最新版本](https://github.com/PIP-AlgorithmGroup/PIP-Link/releases)
 
 ---
 
