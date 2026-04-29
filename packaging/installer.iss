@@ -2,7 +2,7 @@
 ; 基本信息
 ; 运行方式：在项目根目录执行 iscc packaging\installer.iss
 AppName=PIP-Link
-AppVersion=2.0.1
+AppVersion=2.1.0
 AppPublisher=P1ne4pp1e
 AppPublisherURL=https://github.com/P1ne4pp1e/PIP-Link
 AppSupportURL=https://github.com/P1ne4pp1e/PIP-Link/issues
@@ -11,7 +11,7 @@ DefaultDirName={autopf}\PIP-Link
 DefaultGroupName=PIP-Link
 SourceDir=..
 OutputDir=packaging\installer
-OutputBaseFilename=PIP-Link-Setup-v2.0.1
+OutputBaseFilename=PIP-Link-Setup-v2.1.0
 SetupIconFile=assets\icon.ico
 Compression=lzma2/max
 SolidCompression=yes

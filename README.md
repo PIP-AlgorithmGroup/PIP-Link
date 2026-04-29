@@ -337,6 +337,64 @@ ros2 run test_frame_publisher test_frame_publisher_node
 
 该节点会发布测试图像到 ROS 2 话题，供 `remote_link` 节点编码和传输。
 
+**ROS 2 Topic 与协议说明：**
+
+`remote_link` 节点的 ROS 2 接口如下：
+
+| Topic | 方向 | 说明 |
+|---|---|---|
+| `/sending_frame` | 订阅 | 输入图像流（`sensor_msgs/Image`），节点订阅此 topic 获取待编码的视频帧 |
+| `/remote_command` | 发布 | 键鼠控制数据包（自定义二进制格式），包含键盘状态、鼠标位置、按键等信息 |
+
+**键鼠数据包格式（自定义协议）：**
+
+`/remote_command` 发布的消息为自定义二进制协议，**需要订阅方自行解包**。格式如下：
+
+```
+[Magic:2][Version:1][MsgType:1][Reserved:1][Seq:4][...payload...][CRC32:4]
+```
+
+**控制指令消息类型（MsgType=0x01）的 payload 结构：**
+
+| 字段 | 字节数 | 说明 |
+|---|---|---|
+| Keyboard State | 10 | 键盘位图（10 字节，每位代表一个按键状态） |
+| Mouse DX | 2 | 鼠标相对 X 位移（有符号短整数） |
+| Mouse DY | 2 | 鼠标相对 Y 位移（有符号短整数） |
+| Mouse Buttons | 1 | 鼠标按键位图（bit0=左键, bit1=右键, bit2=中键, bit3/4=侧键） |
+| Scroll Delta | 1 | 滚轮增量（有符号字节） |
+
+**示例（Python）：**
+
+```python
+import struct
+
+def parse_remote_command(data):
+    """解析 remote_command 消息"""
+    if len(data) < 20:
+        return None
+    
+    magic, version, msg_type, reserved, seq = struct.unpack('>HBBBI', data[:8])
+    
+    if magic != 0x5050 or msg_type != 0x01:  # Magic='PP', MsgType=CONTROL_COMMAND
+        return None
+    
+    payload = data[8:-4]  # 去掉 CRC32
+    keyboard_state = payload[0:10]
+    mouse_dx, mouse_dy = struct.unpack('>hh', payload[10:14])
+    mouse_buttons = payload[14]
+    scroll_delta = struct.unpack('b', payload[15:16])[0]
+    
+    return {
+        'seq': seq,
+        'keyboard': keyboard_state,
+        'mouse_dx': mouse_dx,
+        'mouse_dy': mouse_dy,
+        'buttons': mouse_buttons,
+        'scroll': scroll_delta
+    }
+```
+
 ---
 
 ## 连接教程
