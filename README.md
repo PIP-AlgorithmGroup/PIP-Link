@@ -25,6 +25,7 @@
 - [功能特性](#功能特性)
 - [系统架构](#系统架构)
 - [快速开始](#快速开始)
+- [机载端部署](#机载端部署)
 - [连接教程](#连接教程)
 - [使用教程](#使用教程)
 - [菜单各标签页说明](#菜单各标签页说明)
@@ -38,18 +39,21 @@
 
 ## 项目简介
 
-PIP-Link 是一套专为低延迟场景设计的远程桌面控制系统，分为**地面站（Ground Unit）**和**机载端（Air Unit）**两部分：
+PIP-Link 是一套专为低延迟场景设计的远程桌面控制系统，**灵感来自 Robomaster 比赛备赛期间对第一视角自瞄相机实时画面的需求**。分为**地面站（Ground Unit）**和**机载端（Air Unit）**两部分：
 
 - **地面站** (`main.py`) — 运行在操作员 PC 上，负责接收视频流、渲染画面、捕获键鼠输入并回传控制指令。
-- **机载端** (`air_unit_server.py`) — 运行在被控设备上，负责采集屏幕、编码视频流、执行键鼠指令。
+- **机载端** — 运行在被控设备上，负责采集屏幕/摄像头、编码视频流、执行键鼠指令。
 
 两端通过 **mDNS 自动发现**或手动 IP 直连，采用自定义二进制协议（CRC32 校验）通过 UDP 通信，支持 H.264 软编码和 JPEG 回退，内置 FEC 前向纠错以应对网络丢包。
 
-> ⚠️ **关于机载端**
+> 📌 **机载端部署方式**
 >
-> 当前仓库中的 `air_unit_server.py` 是一个 **Python 测试脚本**，用于快速验证协议与功能，适合在普通 PC/树莓派等设备上测试。
+> 本项目提供两种机载端实现：
 >
-> **正式的机载端将以 ROS 2 节点形式发布**，届时可直接集成到机器人/无人机的 ROS 2 工作空间中，支持话题订阅、服务调用等标准 ROS 2 接口。ROS 2 节点版本将在单独的仓库中发布，敬请关注。
+> 1. **Python 测试版** (`air_unit_server.py`) — 快速验证协议与功能，适合在普通 PC/树莓派等设备上测试。
+> 2. **ROS 2 节点版** (`src/remote_link`) — **推荐用于机器人/无人机集成**，可直接集成到 ROS 2 工作空间中，支持话题订阅、服务调用等标准 ROS 2 接口。
+>
+> 详见下方[机载端部署](#机载端部署)章节。
 
 ---
 
@@ -161,10 +165,11 @@ PIP-Link/
 | 项目 | 要求 |
 |---|---|
 | 操作系统 | Windows 10/11 x64（地面站）；Linux / Windows（机载端） |
-| Python | 3.10 或更高版本 |
+| Python | 3.10 或更高版本（地面站和 Python 版机载端） |
+| ROS 2 | Humble 或更高版本（ROS 2 版机载端） |
 | 网络 | 地面站与机载端须处于同一局域网（mDNS 发现），或 IP 可达 |
 
-### 从源码运行
+### 地面站快速开始
 
 **第一步：克隆仓库**
 
@@ -181,15 +186,7 @@ conda activate PIP_Link
 pip install -r requirements.txt
 ```
 
-**第三步：在被控设备上启动机载端**
-
-```bash
-python air_unit_server.py
-```
-
-机载端启动后将自动通过 mDNS 广播自身服务（`_pip-link._udp.local.`），终端会打印监听地址和端口。
-
-**第四步：在操作员 PC 上启动地面站**
+**第三步：启动地面站**
 
 ```bash
 conda activate PIP_Link
@@ -202,15 +199,159 @@ python main.py
 
 ---
 
+## 机载端部署
+
+PIP-Link 提供两种机载端实现，根据你的使用场景选择：
+
+### 方案一：Python 版（快速测试）
+
+适合在普通 PC、树莓派等非 ROS 2 环境快速验证。
+
+**启动机载端：**
+
+```bash
+conda create -n PIP_Link python=3.10
+conda activate PIP_Link
+pip install -r requirements.txt
+python air_unit_server.py
+```
+
+机载端启动后将自动通过 mDNS 广播自身服务（`_pip-link._udp.local.`），终端会打印监听地址和端口。
+
+### 方案二：ROS 2 版（推荐用于机器人/无人机）
+
+**适用场景：**
+- 机器人/无人机搭载 ROS 2 系统
+- 需要与其他 ROS 2 节点集成（如视觉处理、控制系统）
+- 需要通过 ROS 2 话题/服务与其他模块通信
+
+**部署步骤：**
+
+**第一步：准备 ROS 2 工作空间**
+
+```bash
+# 创建工作空间（如果还没有）
+mkdir -p ~/ros2_ws/src
+cd ~/ros2_ws/src
+
+# 克隆 PIP-Link 仓库
+git clone https://github.com/P1ne4pp1e/PIP-Link.git
+cd PIP-Link
+
+# 复制 ROS 2 包到工作空间
+cp -r src/remote_link ~/ros2_ws/src/
+cp -r src/test_frame_publisher ~/ros2_ws/src/
+```
+
+**第二步：安装依赖**
+
+```bash
+cd ~/ros2_ws
+
+# 安装系统依赖
+sudo apt-get update
+sudo apt-get install -y \
+  libavcodec-dev libavformat-dev libswscale-dev \
+  libavutil-dev libavdevice-dev \
+  libavfilter-dev \
+  libopencv-dev \
+  nlohmann-json3-dev \
+  libavahi-client-dev zlib1g-dev
+
+# 安装 ROS 2 依赖
+rosdep install --from-paths src --ignore-src -r -y
+```
+
+**第三步：编译**
+
+```bash
+cd ~/ros2_ws
+colcon build --packages-select remote_link test_frame_publisher
+```
+
+**第四步：配置参数文件**
+
+在 ROS 2 工作空间中创建参数配置文件 `remote_link_params.yaml`：
+
+```yaml
+remote_link:
+  ros__parameters:
+    # 基础配置
+    air_unit_name: "air_unit_01"           # 机载端名称（mDNS 服务名）
+    control_port: 9999                     # 控制指令接收端口
+    video_port: 8888                       # 视频流发送端口
+    client_timeout_s: 5.0                  # 客户端超时时间（秒）
+
+    # 视频编码配置
+    target_fps: 30                         # 目标帧率
+    target_bitrate_kbps: 2000              # 目标码率（kbps）
+    jpeg_quality: 80                       # JPEG 质量（0-100）
+    encoder: "h264"                        # 编码器：h264 或 jpeg
+
+    # FEC 前向纠错
+    fec_enabled: true                      # 是否启用 FEC
+    fec_redundancy: 0.2                    # FEC 冗余比例（0.1-0.5）
+
+    # 图像增强
+    brightness: 0                          # 亮度调整（-100~100）
+    contrast: 0                            # 对比度调整（-100~100）
+    sharpness: 0                           # 锐化强度（0~100）
+    denoise: 0                             # 降噪强度（0~100）
+
+    debug:
+      verbose: false
+```
+
+**第五步：启动节点**
+
+```bash
+# 方式一：使用参数文件启动
+cd ~/ros2_ws
+source install/setup.bash
+ros2 launch remote_link remote_link.launch.py params_file:=remote_link_params.yaml
+
+# 方式二：直接启动（使用默认参数）
+ros2 run remote_link remote_link_node
+```
+
+**验证部署：**
+
+```bash
+# 在另一个终端检查节点是否运行
+ros2 node list
+
+# 查看发布的话题
+ros2 topic list
+
+# 查看节点参数
+ros2 param list /remote_link
+```
+
+**测试视频发布（可选）：**
+
+如需测试视频流，可启动 `test_frame_publisher` 节点：
+
+```bash
+ros2 run test_frame_publisher test_frame_publisher_node
+```
+
+该节点会发布测试图像到 ROS 2 话题，供 `remote_link` 节点编码和传输。
+
+---
+
 ## 连接教程
 
 <img src=".\assets\imgs\connect_001.png" alt="connect_001" />
+
+> **前置条件**：确保机载端已启动（Python 版或 ROS 2 版均可）。
 
 ### 方式一：自动发现（推荐）
 
 适用于地面站与机载端处于同一局域网的情况。
 
-1. 确认机载端已运行（`python air_unit_server.py`）
+1. 确认机载端已运行
+   - Python 版：`python air_unit_server.py`
+   - ROS 2 版：`ros2 launch remote_link remote_link.launch.py`
 2. 启动地面站后，按 `Tab` 键打开菜单
 3. 进入 **CONNECTION** 标签页
 4. 点击 **Scan** 按钮，等待 1–3 秒，设备列表中会出现已发现的机载端
@@ -239,8 +380,6 @@ python main.py
 
 - 打开菜单 → CONNECTION 标签页 → 点击 **Disconnect**
 - 或关闭地面站窗口，会自动断开并发送断线通知
-
----
 
 ## 使用教程
 
