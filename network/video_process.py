@@ -116,17 +116,20 @@ class VideoReceiverProcess:
     def get_latest_frame(self) -> Optional[np.ndarray]:
         if not self._shm:
             return None
-        counter = struct.unpack_from("=I", self._shm.buf, 0)[0]
-        if counter == self._last_counter:
+        try:
+            counter = struct.unpack_from("=I", self._shm.buf, 0)[0]
+            if counter == self._last_counter:
+                return None
+            self._last_counter = counter
+            read_idx = (counter - 1) % 2
+            offset = _HEADER + read_idx * _FRAME_SIZE
+            frame = np.frombuffer(
+                bytes(self._shm.buf[offset:offset + _FRAME_SIZE]),
+                dtype=np.uint8,
+            ).reshape((Config.RENDER_HEIGHT, Config.RENDER_WIDTH, 3))
+            return frame
+        except (ValueError, TypeError, AttributeError):
             return None
-        self._last_counter = counter
-        read_idx = (counter - 1) % 2
-        offset = _HEADER + read_idx * _FRAME_SIZE
-        frame = np.frombuffer(
-            bytes(self._shm.buf[offset:offset + _FRAME_SIZE]),
-            dtype=np.uint8,
-        ).reshape((Config.RENDER_HEIGHT, Config.RENDER_WIDTH, 3))
-        return frame
 
     def get_statistics(self) -> dict:
         while self._stats_q:
