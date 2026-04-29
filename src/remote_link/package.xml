@@ -1,0 +1,27 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>remote_link</name>
+  <version>0.1.0</version>
+  <description>PIP-Link air unit communication node: mDNS registration, UDP control/video channels</description>
+  <maintainer email="mabolong2006@outlook.com">p1ne4pp1e</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rclcpp_components</depend>
+  <depend>sensor_msgs</depend>
+  <depend>std_msgs</depend>
+  <depend>pip_vision_interfaces</depend>
+  <depend>libopencv-dev</depend>
+
+  <!-- System libs (non-ament): avahi-client, zlib, libavcodec, nlohmann-json3-dev -->
+
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_lint_common</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
