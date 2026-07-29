@@ -15,6 +15,7 @@ class MdnsService {
 public:
     struct Config {
         std::string service_name;
+        std::string interface_name;
         uint16_t    control_port;
         uint16_t    video_port;
     };

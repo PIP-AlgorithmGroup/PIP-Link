@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <net/if.h>
 
 namespace remote_link {
 
@@ -20,6 +21,16 @@ void MdnsService::create_services(AvahiClient* c) {
     }
 
     if (avahi_entry_group_is_empty(avahi_group_)) {
+        AvahiIfIndex interface_index = AVAHI_IF_UNSPEC;
+        if (!cfg_.interface_name.empty()) {
+            const unsigned int resolved_index = if_nametoindex(cfg_.interface_name.c_str());
+            if (resolved_index == 0U) {
+                fprintf(stderr, "[MdnsService] configured interface '%s' does not exist\n",
+                        cfg_.interface_name.c_str());
+                return;
+            }
+            interface_index = static_cast<AvahiIfIndex>(resolved_index);
+        }
         char video_port_str[16];
         char ctrl_port_str[16];
         std::snprintf(video_port_str, sizeof(video_port_str), "%u", cfg_.video_port);
@@ -27,7 +38,7 @@ void MdnsService::create_services(AvahiClient* c) {
 
         int ret = avahi_entry_group_add_service(
             avahi_group_,
-            AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC, static_cast<AvahiPublishFlags>(0),
+            interface_index, AVAHI_PROTO_INET, static_cast<AvahiPublishFlags>(0),
             cfg_.service_name.c_str(),
             "_pip-link._udp",
             nullptr, nullptr,

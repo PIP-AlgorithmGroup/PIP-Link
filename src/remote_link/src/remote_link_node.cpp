@@ -22,6 +22,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
 {
     // --- Declare parameters ---
     declare_parameter("air_unit_name",       "air_unit_01");
+    declare_parameter("mdns.interface_name", "wlP1p1s0");
     declare_parameter("control_port",        6000);
     declare_parameter("video_port",          5000);
     declare_parameter("target_fps",          30);
@@ -93,6 +94,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     // --- MdnsService ---
     MdnsService::Config mdns_cfg;
     mdns_cfg.service_name = get_parameter("air_unit_name").as_string();
+    mdns_cfg.interface_name = get_parameter("mdns.interface_name").as_string();
     mdns_cfg.control_port = ctrl_port;
     mdns_cfg.video_port   = vs_cfg.port;
     mdns_ = std::make_unique<MdnsService>(mdns_cfg);
