@@ -1,8 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"D:/~Document/_$.Project/PIP-Link/develop/ground_station_cpp/cmake-build-debug/cmake_install.cmake",
-		"D:/~Document/_$.Project/PIP-Link/develop/ground_station_cpp/cmake-build-debug/tests/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
