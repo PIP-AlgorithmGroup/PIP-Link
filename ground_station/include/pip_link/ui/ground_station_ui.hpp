@@ -70,6 +70,7 @@ private:
     bool gamepad_vibration_{true};
     bool about_open_{false};
     bool display_confirmation_open_{false};
+    bool nested_scroll_consumed_{false};
     int active_settings_tab_{0};
     int selected_device_{-1};
     int heartbeat_ms_{1000};
@@ -107,7 +108,9 @@ private:
     float settings_scroll_target_{0.0F};
     float tab_scroll_target_{0.0F};
     float console_scroll_target_{0.0F};
+    float device_scroll_target_{0.0F};
     double recording_started_at_{0.0};
+    double scanning_started_at_{0.0};
     double display_confirmation_deadline_{0.0};
     std::array<int, 11> key_bindings_{};
     std::array<float, 7> tab_hover_{};

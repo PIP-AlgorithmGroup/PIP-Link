@@ -19,8 +19,10 @@
 namespace pip_link::platform {
 namespace {
 
-constexpr int initial_width = 1440;
-constexpr int initial_height = 900;
+constexpr int preferred_width = 1440;
+constexpr int preferred_height = 900;
+constexpr int minimum_width = 960;
+constexpr int minimum_height = 640;
 
 void release_render_target(ID3D11RenderTargetView*& target) {
     if (target != nullptr) {
@@ -54,6 +56,9 @@ void apply_theme(float scale) {
     style.WindowBorderSize = 0.0F;
     style.ChildBorderSize = 1.0F;
     style.FrameBorderSize = 0.0F;
+    style.WindowPadding = {16.0F, 14.0F};
+    style.FramePadding = {11.0F, 7.0F};
+    style.ItemSpacing = {10.0F, 9.0F};
     style.ScaleAllSizes(scale);
 
     auto& colors = style.Colors;
@@ -76,6 +81,13 @@ void apply_theme(float scale) {
     colors[ImGuiCol_HeaderHovered] = {0.64F, 0.84F, 0.91F, 1.00F};
     colors[ImGuiCol_HeaderActive] = {0.48F, 0.78F, 0.87F, 1.00F};
     colors[ImGuiCol_Separator] = {0.76F, 0.81F, 0.86F, 0.85F};
+    colors[ImGuiCol_TableHeaderBg] = {0.86F, 0.91F, 0.95F, 1.00F};
+    colors[ImGuiCol_TableRowBg] = {0.985F, 0.990F, 1.00F, 1.00F};
+    colors[ImGuiCol_TableRowBgAlt] = {0.94F, 0.96F, 0.98F, 1.00F};
+    colors[ImGuiCol_PlotLines] = {0.00F, 0.58F, 0.78F, 1.00F};
+    colors[ImGuiCol_PlotLinesHovered] = {0.00F, 0.72F, 0.90F, 1.00F};
+    colors[ImGuiCol_NavHighlight] = {0.00F, 0.58F, 0.78F, 0.75F};
+    colors[ImGuiCol_ModalWindowDimBg] = {0.17F, 0.24F, 0.31F, 0.28F};
     colors[ImGuiCol_ScrollbarBg] = {0.0F, 0.0F, 0.0F, 0.0F};
     colors[ImGuiCol_ScrollbarGrab] = {0.0F, 0.0F, 0.0F, 0.0F};
     colors[ImGuiCol_ScrollbarGrabHovered] = {0.0F, 0.0F, 0.0F, 0.0F};
@@ -185,16 +197,29 @@ int DesktopWindow::run() {
         return 1;
     }
 
+    int window_width = preferred_width;
+    int window_height = preferred_height;
+    SDL_Rect usable_bounds{};
+    const SDL_DisplayID primary_display = SDL_GetPrimaryDisplay();
+    if (primary_display != 0 && SDL_GetDisplayUsableBounds(primary_display, &usable_bounds)) {
+        window_width = std::clamp(static_cast<int>(usable_bounds.w * 0.88F),
+                                  minimum_width, preferred_width);
+        window_height = std::clamp(static_cast<int>(usable_bounds.h * 0.88F),
+                                   minimum_height, preferred_height);
+    }
+
     impl_->window = SDL_CreateWindow(
         "PIP-Link",
-        initial_width,
-        initial_height,
+        window_width,
+        window_height,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
     if (impl_->window == nullptr) {
         std::cerr << "Window creation failed: " << SDL_GetError() << '\n';
         impl_->shutdown();
         return 1;
     }
+    SDL_SetWindowMinimumSize(impl_->window, minimum_width, minimum_height);
+    SDL_SetWindowPosition(impl_->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 
     const SDL_PropertiesID properties = SDL_GetWindowProperties(impl_->window);
     const auto hwnd = static_cast<HWND>(
@@ -261,7 +286,7 @@ int DesktopWindow::run() {
         }
         ImGui::Render();
 
-        constexpr float clear_color[4] = {0.025F, 0.031F, 0.045F, 1.0F};
+        constexpr float clear_color[4] = {0.93F, 0.95F, 0.97F, 1.0F};
         impl_->context->OMSetRenderTargets(1, &impl_->render_target, nullptr);
         impl_->context->ClearRenderTargetView(impl_->render_target, clear_color);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());

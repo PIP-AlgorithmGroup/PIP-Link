@@ -240,10 +240,110 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
     const ImVec2 origin = ImGui::GetWindowPos();
     const ImVec2 size = ImGui::GetWindowSize();
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    draw->AddRectFilled(origin, {origin.x + size.x, origin.y + size.y}, IM_COL32(5, 7, 10, 255));
 
     const auto video = backend_.latest_video_surface();
-    if (video.native_texture != nullptr && video.width > 0 && video.height > 0) {
+    const bool has_video = video.native_texture != nullptr && video.width > 0 && video.height > 0;
+    if (!has_video) {
+        const ImVec2 bottom_right{origin.x + size.x, origin.y + size.y};
+        draw->AddRectFilled(origin, bottom_right, IM_COL32(237, 243, 247, 255));
+
+        const float grid_step = 58.0F * scale;
+        const ImU32 grid_color = IM_COL32(98, 151, 174, 20);
+        for (float x = origin.x; x < bottom_right.x; x += grid_step) {
+            draw->AddLine({x, origin.y}, {x, bottom_right.y}, grid_color);
+        }
+        for (float y = origin.y; y < bottom_right.y; y += grid_step) {
+            draw->AddLine({origin.x, y}, {bottom_right.x, y}, grid_color);
+        }
+
+        draw->AddCircle({origin.x + size.x * 0.15F, origin.y + size.y * 0.20F},
+                        150.0F * scale, IM_COL32(0, 147, 190, 20), 80, 2.0F * scale);
+        draw->AddCircle({origin.x + size.x * 0.86F, origin.y + size.y * 0.78F},
+                        220.0F * scale, IM_COL32(0, 147, 190, 16), 96, 2.0F * scale);
+
+        draw->AddText({origin.x + 30.0F * scale, origin.y + 24.0F * scale},
+                      IM_COL32(0, 147, 190, 255), "PIP-Link");
+        draw->AddText({origin.x + 30.0F * scale, origin.y + 52.0F * scale},
+                      IM_COL32(93, 112, 126, 210), "ROBOT FIRST-PERSON CONTROL");
+
+        const float card_width = std::min(570.0F * scale, size.x - 64.0F * scale);
+        const float card_height = std::min(300.0F * scale, size.y - 140.0F * scale);
+        const ImVec2 center{origin.x + size.x * 0.5F, origin.y + size.y * 0.5F};
+        const ImVec2 card_min{center.x - card_width * 0.5F,
+                              center.y - card_height * 0.5F};
+        const ImVec2 card_max{center.x + card_width * 0.5F,
+                              center.y + card_height * 0.5F};
+        draw->AddRectFilled({card_min.x + 3.0F * scale, card_min.y + 7.0F * scale},
+                            {card_max.x + 3.0F * scale, card_max.y + 7.0F * scale},
+                            IM_COL32(42, 72, 88, 20), 14.0F * scale);
+        draw->AddRectFilled(card_min, card_max, IM_COL32(252, 254, 255, 255),
+                            14.0F * scale);
+        draw->AddRect(card_min, card_max, IM_COL32(190, 211, 222, 190),
+                      14.0F * scale, 0, 1.0F * scale);
+
+        const ImVec2 icon_center{center.x, card_min.y + 70.0F * scale};
+        draw->AddCircleFilled(icon_center, 30.0F * scale, IM_COL32(220, 244, 250, 255));
+        draw->AddCircle(icon_center, 19.0F * scale, IM_COL32(0, 151, 190, 230),
+                        48, 3.0F * scale);
+        draw->AddCircleFilled(icon_center, 5.0F * scale, IM_COL32(0, 151, 190, 255));
+        draw->AddLine({icon_center.x - 12.0F * scale, icon_center.y + 21.0F * scale},
+                      {icon_center.x + 12.0F * scale, icon_center.y + 21.0F * scale},
+                      IM_COL32(0, 151, 190, 175), 2.0F * scale);
+
+        const char* title = "等待机器人视频信号";
+        const float title_font_size = ImGui::GetFontSize() * 1.38F;
+        const ImVec2 title_size = ImGui::GetFont()->CalcTextSizeA(
+            title_font_size, 10000.0F, 0.0F, title);
+        draw->AddText(ImGui::GetFont(), title_font_size,
+                      {center.x - title_size.x * 0.5F,
+                       card_min.y + 112.0F * scale},
+                      IM_COL32(28, 47, 60, 255), title);
+        const char* description = connected_
+                                      ? "控制链路已建立，正在等待后端提供首个视频帧"
+                                      : "连接机器人后，视频画面将在这里铺满整个窗口";
+        const ImVec2 description_size = ImGui::CalcTextSize(description);
+        draw->AddText({center.x - description_size.x * 0.5F,
+                       card_min.y + 161.0F * scale},
+                      IM_COL32(91, 111, 125, 235), description);
+
+        const ImVec2 status_center{center.x - 55.0F * scale,
+                                   card_min.y + 202.0F * scale};
+        draw->AddCircleFilled(status_center, 4.0F * scale,
+                              connected_ ? IM_COL32(35, 181, 104, 255)
+                                         : IM_COL32(240, 151, 45, 255));
+        draw->AddText({status_center.x + 11.0F * scale,
+                       status_center.y - ImGui::GetTextLineHeight() * 0.5F},
+                      IM_COL32(89, 108, 121, 255),
+                      connected_ ? "链路已连接" : "尚未连接" );
+
+        ImGui::SetCursorScreenPos({center.x - 125.0F * scale,
+                                   card_max.y - 62.0F * scale});
+        char no_signal_action[96]{};
+        std::snprintf(no_signal_action, sizeof(no_signal_action), "%s  [%s]",
+                      connected_ ? "打开图传设置" : "打开连接设置",
+                      ImGui::GetKeyName(
+                          static_cast<ImGuiKey>(key_bindings_[toggle_settings_binding])));
+        ImGui::PushStyleColor(ImGuiCol_Text, {1.0F, 1.0F, 1.0F, 1.0F});
+        ImGui::PushStyleColor(ImGuiCol_Button, {0.00F, 0.58F, 0.78F, 1.0F});
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.00F, 0.66F, 0.86F, 1.0F});
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.00F, 0.49F, 0.68F, 1.0F});
+        if (ImGui::Button(no_signal_action, {250.0F * scale, 42.0F * scale})) {
+            active_settings_tab_ = connected_ ? 1 : 0;
+            open_settings();
+        }
+        ImGui::PopStyleColor(4);
+
+        draw->AddText({origin.x + 30.0F * scale,
+                       bottom_right.y - 34.0F * scale},
+                      IM_COL32(108, 127, 139, 165),
+                      "C++20  ·  SDL3  ·  Direct3D 11");
+        ImGui::End();
+        ImGui::PopStyleVar();
+        return;
+    }
+
+    draw->AddRectFilled(origin, {origin.x + size.x, origin.y + size.y}, IM_COL32(5, 7, 10, 255));
+    if (has_video) {
         const float canvas_aspect = size.x / size.y;
         const float video_aspect = static_cast<float>(video.width) /
                                    static_cast<float>(video.height);
@@ -261,12 +361,6 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         const auto texture_id = static_cast<ImTextureID>(
             reinterpret_cast<std::uintptr_t>(video.native_texture));
         draw->AddImage(texture_id, origin, {origin.x + size.x, origin.y + size.y}, uv0, uv1);
-    } else {
-        const ImVec2 center{origin.x + size.x * 0.5F, origin.y + size.y * 0.5F};
-        const char* no_signal = "NO VIDEO SIGNAL";
-        const ImVec2 text_size = ImGui::CalcTextSize(no_signal);
-        draw->AddText({center.x - text_size.x * 0.5F, center.y - text_size.y * 0.5F},
-                      IM_COL32(140, 148, 160, 175), no_signal);
     }
 
     const float unit = scale * hud_scale_;
@@ -282,7 +376,7 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         mouse_indicator_y_ += (target_y - mouse_indicator_y_) * mouse_t;
 
         const float panel_w = 390.0F * unit;
-        const float panel_h = 178.0F * unit;
+        const float panel_h = 202.0F * unit;
         const ImVec2 p0{origin.x + margin, origin.y + size.y - margin - panel_h};
         const ImVec2 p1{p0.x + panel_w, p0.y + panel_h};
         draw->AddRectFilled(p0, p1, IM_COL32(7, 12, 18, static_cast<int>(175.0F * opacity)),
@@ -342,6 +436,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         ImVec2 tag_cursor{p0.x + 14.0F * unit, p0.y + 132.0F * unit};
         const ImVec2 tag_bounds{p1.x - 14.0F * unit, p0.x + 14.0F * unit};
         int pressed_count = 0;
+        draw->PushClipRect({p0.x + 12.0F * unit, p0.y + 126.0F * unit},
+                           {p1.x - 12.0F * unit, p1.y - 10.0F * unit}, true);
         for (const auto& visual : key_visuals) {
             if (ImGui::IsKeyDown(visual.key)) {
                 draw_key_tag(draw, tag_cursor, tag_bounds, visual.label, unit, opacity);
@@ -352,6 +448,7 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
             draw->AddText(tag_cursor, IM_COL32(150, 163, 174, static_cast<int>(150.0F * opacity)),
                           "NO KEY INPUT");
         }
+        draw->PopClipRect();
     }
 
     const auto telemetry = backend_.telemetry();
@@ -414,20 +511,30 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
     ImGui::SetWindowFontScale(1.42F);
     ImGui::TextColored(accent, "PIP-Link");
     ImGui::SetWindowFontScale(1.0F);
-    ImGui::SameLine();
-    ImGui::TextColored(text_secondary, "机器人第一视角控制客户端");
-    ImGui::SameLine(ImGui::GetWindowWidth() - 320.0F * scale);
-    ImGui::TextColored(connected_ ? success : warning, connected_ ? "● 已连接" : "● 未连接");
-    ImGui::SameLine(ImGui::GetWindowWidth() - 170.0F * scale);
-    if (ImGui::Button("返回第一视角  [Esc]", {145.0F * scale, 36.0F * scale})) {
+    const float window_width = ImGui::GetWindowWidth();
+    const bool show_header_detail = window_width >= 1080.0F * scale;
+    if (show_header_detail) {
+        ImGui::SameLine();
+        ImGui::TextColored(text_secondary, "机器人第一视角控制客户端");
+        ImGui::SameLine(window_width - 320.0F * scale);
+        ImGui::TextColored(connected_ ? success : warning,
+                           connected_ ? "已连接" : "未连接");
+    }
+    char return_label[96]{};
+    std::snprintf(return_label, sizeof(return_label), "返回第一视角  [%s]",
+                  ImGui::GetKeyName(
+                      static_cast<ImGuiKey>(key_bindings_[toggle_settings_binding])));
+    ImGui::SameLine(window_width - 190.0F * scale);
+    if (ImGui::Button(return_label, {165.0F * scale, 36.0F * scale})) {
         settings_open_ = false;
     }
     ImGui::Dummy({0.0F, 5.0F * scale});
     draw_settings_tabs(delta_seconds, scale);
     ImGui::Dummy({0.0F, 8.0F * scale});
 
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.93F, 0.95F, 0.97F, 0.0F});
     ImGui::BeginChild("##SettingsContent", {0.0F, -40.0F * scale},
-                      ImGuiChildFlags_Borders,
+                      ImGuiChildFlags_None,
                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar);
     ImGui::SetWindowFontScale(1.52F);
     ImGui::TextUnformatted(tabs[active_settings_tab_].title);
@@ -437,6 +544,7 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
     ImGui::Separator();
     ImGui::Spacing();
 
+    nested_scroll_consumed_ = false;
     switch (active_settings_tab_) {
         case 0: draw_connection_page(scale); break;
         case 1: draw_video_page(scale); break;
@@ -448,7 +556,8 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
         default: break;
     }
 
-    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
+    if (!nested_scroll_consumed_ &&
+        ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
         ImGui::GetIO().MouseWheel != 0.0F) {
         settings_scroll_target_ -= ImGui::GetIO().MouseWheel * 100.0F * scale;
     }
@@ -461,6 +570,7 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
         ImGui::SetScrollY(settings_scroll_target_);
     }
     ImGui::EndChild();
+    ImGui::PopStyleColor();
 
     ImGui::TextColored(text_secondary, "%s", feedback_.c_str());
     ImGui::SameLine(ImGui::GetWindowWidth() - 105.0F * scale);
