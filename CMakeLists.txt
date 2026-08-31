@@ -8,16 +8,16 @@ project(
 )
 
 option(PIP_LINK_BUILD_TESTS "Build PIP-Link ground station tests" ON)
+option(PIP_LINK_BUILD_GUI "Build the SDL3 + Dear ImGui desktop shell" ON)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-add_library(pip_link_core STATIC
-    ground_station/src/app/application.cpp
-    ground_station/src/core/build_info.cpp
-)
+include(FetchContent)
+
+add_library(pip_link_core STATIC ground_station/src/core/build_info.cpp)
 
 target_include_directories(pip_link_core
     PUBLIC
@@ -40,8 +40,65 @@ else()
     target_compile_options(pip_link_core PRIVATE -Wall -Wextra -Wpedantic)
 endif()
 
-add_executable(pip_link_ground_station ground_station/src/main.cpp)
-target_link_libraries(pip_link_ground_station PRIVATE pip_link_core)
+if(PIP_LINK_BUILD_GUI)
+    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+
+    FetchContent_Declare(
+        SDL3
+        GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
+        GIT_TAG release-3.2.16
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(SDL3)
+
+    FetchContent_Declare(
+        imgui
+        GIT_REPOSITORY https://github.com/ocornut/imgui.git
+        GIT_TAG v1.91.9b
+        GIT_SHALLOW TRUE
+    )
+    FetchContent_MakeAvailable(imgui)
+
+    add_library(pip_link_imgui STATIC
+        ${imgui_SOURCE_DIR}/imgui.cpp
+        ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/imgui_draw.cpp
+        ${imgui_SOURCE_DIR}/imgui_tables.cpp
+        ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
+        ${imgui_SOURCE_DIR}/backends/imgui_impl_sdl3.cpp
+    )
+    target_include_directories(pip_link_imgui PUBLIC
+        ${imgui_SOURCE_DIR}
+        ${imgui_SOURCE_DIR}/backends
+    )
+    target_link_libraries(pip_link_imgui PUBLIC SDL3::SDL3 d3d11 dxgi d3dcompiler)
+
+    add_library(pip_link_desktop STATIC
+        ground_station/src/app/application.cpp
+        ground_station/src/platform/desktop_window.cpp
+        ground_station/src/ui/ground_station_ui.cpp
+    )
+    target_include_directories(pip_link_desktop PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ground_station/include>
+    )
+    target_link_libraries(pip_link_desktop
+        PUBLIC pip_link_core
+        PRIVATE pip_link_imgui SDL3::SDL3 d3d11 dxgi
+    )
+    if(MSVC)
+        target_compile_options(pip_link_desktop PRIVATE /W4 /permissive- /utf-8)
+    else()
+        target_compile_options(pip_link_desktop PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_executable(pip_link_ground_station ground_station/src/main.cpp)
+    target_link_libraries(pip_link_ground_station PRIVATE pip_link_desktop)
+    install(TARGETS pip_link_ground_station RUNTIME DESTINATION bin)
+endif()
 
 if(PIP_LINK_BUILD_TESTS)
     include(CTest)
@@ -49,5 +106,3 @@ if(PIP_LINK_BUILD_TESTS)
         add_subdirectory(ground_station/tests)
     endif()
 endif()
-
-install(TARGETS pip_link_ground_station RUNTIME DESTINATION bin)
