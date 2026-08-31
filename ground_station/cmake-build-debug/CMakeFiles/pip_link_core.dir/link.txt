@@ -1,0 +1,2 @@
+D:\mingw64\bin\ar.exe qc libpip_link_core.a CMakeFiles/pip_link_core.dir/src/app/application.cpp.obj CMakeFiles/pip_link_core.dir/src/core/build_info.cpp.obj
+D:\mingw64\bin\ranlib.exe libpip_link_core.a
