@@ -79,6 +79,7 @@ if(PIP_LINK_BUILD_GUI)
 
     add_library(pip_link_desktop STATIC
         ground_station/src/app/application.cpp
+        ground_station/src/backend/ground_station_backend_stub.cpp
         ground_station/src/platform/desktop_window.cpp
         ground_station/src/ui/ground_station_ui.cpp
     )

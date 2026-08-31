@@ -1,16 +1,98 @@
 #pragma once
 
+#include "pip_link/backend/ground_station_backend.hpp"
+
 #include <array>
+#include <string>
+#include <vector>
 
 namespace pip_link::ui {
 
 class GroundStationUi final {
 public:
+    explicit GroundStationUi(backend::GroundStationBackend& backend);
+
     void draw(float delta_seconds, float display_scale);
+    [[nodiscard]] bool quit_requested() const noexcept;
 
 private:
-    int active_page_{0};
-    std::array<float, 8> navigation_hover_{};
+    void draw_fpv(float delta_seconds, float scale);
+    void draw_settings(float delta_seconds, float scale);
+    void draw_settings_tabs(float delta_seconds, float scale);
+    void draw_console(float delta_seconds, float scale);
+    void draw_connection_page(float scale);
+    void draw_parameters_page(float scale);
+    void draw_video_page(float scale);
+    void draw_recording_page(float scale);
+    void draw_diagnostics_page(float scale);
+    void draw_control_page(float scale);
+    void draw_debug_page(float scale);
+    void draw_audit_page(float scale);
+    void draw_about_page(float scale);
+    void toggle_ready();
+    void set_feedback(std::string message);
+
+    backend::GroundStationBackend& backend_;
+    bool settings_open_{false};
+    bool console_open_{false};
+    bool quit_requested_{false};
+    bool ready_{false};
+    bool connected_{false};
+    bool recording_{false};
+    bool scanning_{false};
+    bool auto_reconnect_{true};
+    bool low_latency_{true};
+    bool vertical_sync_{true};
+    bool fec_enabled_{false};
+    bool invert_y_{false};
+    bool invert_pitch_{false};
+    bool capture_mouse_{true};
+    bool send_keyboard_{true};
+    bool show_input_hud_{true};
+    bool show_status_hud_{true};
+    bool verbose_log_{false};
+    bool simulation_mode_{false};
+    bool gamepad_vibration_{true};
+    int active_settings_tab_{0};
+    int selected_device_{-1};
+    int heartbeat_ms_{1000};
+    int reconnect_seconds_{3};
+    int mtu_{1400};
+    int resolution_index_{3};
+    int quality_index_{2};
+    int window_mode_{0};
+    int encoder_index_{1};
+    int decoder_index_{0};
+    int frame_rate_{60};
+    int bitrate_kbps_{12000};
+    int recording_format_{0};
+    int recording_quality_{85};
+    int split_minutes_{30};
+    int brightness_{0};
+    int contrast_{0};
+    int sharpness_{0};
+    int denoise_{0};
+    int rebinding_action_{-1};
+    float mouse_sensitivity_{1.0F};
+    float field_of_view_{90.0F};
+    float fec_redundancy_{0.20F};
+    float gamepad_deadzone_{0.15F};
+    float console_height_{0.0F};
+    float settings_scroll_target_{0.0F};
+    float tab_scroll_target_{0.0F};
+    float console_scroll_target_{0.0F};
+    double recording_started_at_{0.0};
+    std::array<int, 4> key_bindings_{};
+    std::array<float, 9> tab_hover_{};
+    std::array<float, 120> fps_history_{};
+    std::array<float, 120> latency_history_{};
+    std::array<char, 128> service_name_{"_pip-link._udp.local"};
+    std::array<char, 128> manual_address_{"192.168.1.10:5800"};
+    std::array<char, 260> recording_directory_{"recordings"};
+    std::array<char, 128> audit_filter_{};
+    std::array<char, 256> console_command_{};
+    std::vector<std::string> console_lines_{"PIP-Link developer console", "输入 help 查看后端命令"};
+    std::string feedback_{"前端已就绪，后端接口等待实现"};
 };
 
 }  // namespace pip_link::ui

@@ -1,5 +1,6 @@
 #include "pip_link/platform/desktop_window.hpp"
 
+#include "pip_link/backend/ground_station_backend.hpp"
 #include "pip_link/ui/ground_station_ui.hpp"
 
 #include <SDL3/SDL.h>
@@ -73,6 +74,10 @@ void apply_theme(float scale) {
     colors[ImGuiCol_Header] = {0.04F, 0.20F, 0.25F, 1.00F};
     colors[ImGuiCol_HeaderHovered] = {0.02F, 0.39F, 0.46F, 1.00F};
     colors[ImGuiCol_HeaderActive] = {0.00F, 0.62F, 0.72F, 1.00F};
+    colors[ImGuiCol_ScrollbarBg] = {0.0F, 0.0F, 0.0F, 0.0F};
+    colors[ImGuiCol_ScrollbarGrab] = {0.0F, 0.0F, 0.0F, 0.0F};
+    colors[ImGuiCol_ScrollbarGrabHovered] = {0.0F, 0.0F, 0.0F, 0.0F};
+    colors[ImGuiCol_ScrollbarGrabActive] = {0.0F, 0.0F, 0.0F, 0.0F};
 }
 
 }  // namespace
@@ -84,7 +89,8 @@ struct DesktopWindow::Impl final {
     IDXGISwapChain* swap_chain{nullptr};
     ID3D11RenderTargetView* render_target{nullptr};
     float display_scale{1.0F};
-    ui::GroundStationUi ui;
+    backend::GroundStationBackendStub backend;
+    ui::GroundStationUi ui{backend};
 
     bool create_render_target() {
         ID3D11Texture2D* back_buffer = nullptr;
@@ -244,6 +250,9 @@ int DesktopWindow::run() {
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         impl_->ui.draw(delta_seconds, impl_->display_scale);
+        if (impl_->ui.quit_requested()) {
+            running = false;
+        }
         ImGui::Render();
 
         constexpr float clear_color[4] = {0.025F, 0.031F, 0.045F, 1.0F};
