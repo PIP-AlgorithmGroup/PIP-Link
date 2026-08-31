@@ -1,5 +1,6 @@
 #include "pip_link/core/build_info.hpp"
 #include "pip_link/core/debounced_action.hpp"
+#include "pip_link/core/input_validation.hpp"
 
 #include <iostream>
 
@@ -33,6 +34,25 @@ int main() {
     debounce.cancel();
     if (debounce.pending() || debounce.tick(1.0F)) {
         std::cerr << "Debounce cancel semantics are invalid.\n";
+        return 1;
+    }
+
+    if (!pip_link::core::is_valid_service_name("_pip-link._udp.local") ||
+        pip_link::core::is_valid_service_name("   ")) {
+        std::cerr << "Service-name validation is invalid.\n";
+        return 1;
+    }
+    if (!pip_link::core::is_valid_endpoint("192.168.1.10:5800") ||
+        !pip_link::core::is_valid_endpoint("[fe80::1]:5800") ||
+        pip_link::core::is_valid_endpoint("192.168.1.10") ||
+        pip_link::core::is_valid_endpoint(":5800") ||
+        pip_link::core::is_valid_endpoint("192.168.1.10:70000")) {
+        std::cerr << "Endpoint validation is invalid.\n";
+        return 1;
+    }
+    if (!pip_link::core::is_valid_directory("recordings") ||
+        pip_link::core::is_valid_directory("\t")) {
+        std::cerr << "Directory validation is invalid.\n";
         return 1;
     }
     return 0;

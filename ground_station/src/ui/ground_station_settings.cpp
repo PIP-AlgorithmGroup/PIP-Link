@@ -1,5 +1,7 @@
 #include "pip_link/ui/ground_station_ui.hpp"
 
+#include "pip_link/core/input_validation.hpp"
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -12,11 +14,12 @@
 namespace pip_link::ui {
 namespace {
 
-constexpr ImVec4 accent{0.00F, 0.58F, 0.78F, 1.00F};
-constexpr ImVec4 text_secondary{0.39F, 0.44F, 0.52F, 1.00F};
-constexpr ImVec4 success{0.08F, 0.72F, 0.38F, 1.00F};
-constexpr ImVec4 warning{0.96F, 0.57F, 0.10F, 1.00F};
-constexpr ImVec4 danger{0.91F, 0.25F, 0.22F, 1.00F};
+constexpr ImVec4 text_primary{0.07F, 0.11F, 0.16F, 1.00F};
+constexpr ImVec4 accent{0.00F, 0.44F, 0.62F, 1.00F};
+constexpr ImVec4 text_secondary{0.28F, 0.35F, 0.42F, 1.00F};
+constexpr ImVec4 success{0.04F, 0.45F, 0.25F, 1.00F};
+constexpr ImVec4 warning{0.66F, 0.32F, 0.02F, 1.00F};
+constexpr ImVec4 danger{0.70F, 0.13F, 0.10F, 1.00F};
 
 struct ColumnLayout final {
     bool wide;
@@ -47,8 +50,8 @@ void section_title(const char* title, const char* description = nullptr) {
 void begin_card(const char* id, const ImVec2 size = {0.0F, 0.0F}) {
     const float density = std::clamp(ImGui::GetFontSize() / 18.0F, 1.0F, 2.0F);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {18.0F * density, 16.0F * density});
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.995F, 0.998F, 1.0F, 1.0F});
-    ImGui::PushStyleColor(ImGuiCol_Border, {0.76F, 0.82F, 0.86F, 0.82F});
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {1.0F, 1.0F, 1.0F, 1.0F});
+    ImGui::PushStyleColor(ImGuiCol_Border, {0.66F, 0.73F, 0.78F, 0.92F});
     ImGui::BeginChild(id, size, ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 }
@@ -75,7 +78,7 @@ enum class ButtonTone { primary, secondary, danger };
 
 bool styled_button(const char* label, float width, ButtonTone tone) {
     const float density = std::clamp(ImGui::GetFontSize() / 18.0F, 1.0F, 2.0F);
-    const float height = 36.0F * density;
+    const float height = ImGui::GetFrameHeight();
     const ImVec2 start = ImGui::GetCursorScreenPos();
     const ImGuiID id = ImGui::GetID(label);
     const bool clicked = ImGui::InvisibleButton(label, {width, height});
@@ -85,15 +88,15 @@ bool styled_button(const char* label, float width, ButtonTone tone) {
     const float opacity = ImGui::GetStyle().Alpha;
     ImDrawList* draw = ImGui::GetWindowDrawList();
     const ImVec4 base = tone == ButtonTone::primary
-                            ? ImVec4{0.00F, 0.58F, 0.78F, opacity}
+                            ? ImVec4{0.00F, 0.44F, 0.62F, opacity}
                         : tone == ButtonTone::danger
-                            ? ImVec4{0.86F, 0.25F, 0.22F, opacity}
-                            : ImVec4{0.96F, 0.98F, 0.99F, opacity};
+                            ? ImVec4{0.70F, 0.13F, 0.10F, opacity}
+                            : ImVec4{0.92F, 0.95F, 0.97F, opacity};
     const ImVec4 hovered_color = tone == ButtonTone::primary
-                                     ? ImVec4{0.00F, 0.66F, 0.85F, opacity}
+                                     ? ImVec4{0.00F, 0.52F, 0.70F, opacity}
                                  : tone == ButtonTone::danger
-                                     ? ImVec4{0.92F, 0.31F, 0.27F, opacity}
-                                     : ImVec4{0.87F, 0.94F, 0.97F, opacity};
+                                     ? ImVec4{0.79F, 0.19F, 0.15F, opacity}
+                                     : ImVec4{0.84F, 0.91F, 0.94F, opacity};
     ImVec4 fill{
         base.x + (hovered_color.x - base.x) * hover,
         base.y + (hovered_color.y - base.y) * hover,
@@ -114,14 +117,14 @@ bool styled_button(const char* label, float width, ButtonTone tone) {
                         ImGui::GetColorU32(fill), 7.0F * density);
     if (tone == ButtonTone::secondary) {
         draw->AddRect(start, {start.x + width, start.y + height},
-                      IM_COL32(171, 193, 204, static_cast<int>(220.0F * opacity)),
+                      IM_COL32(151, 174, 188, static_cast<int>(235.0F * opacity)),
                       7.0F * density, 0, 1.0F * density);
     }
     const ImVec2 text_size = ImGui::CalcTextSize(label);
     draw->AddText({start.x + (width - text_size.x) * 0.5F,
                    start.y + (height - text_size.y) * 0.5F},
                   tone == ButtonTone::secondary
-                      ? IM_COL32(45, 67, 79, static_cast<int>(255.0F * opacity))
+                      ? IM_COL32(31, 48, 61, static_cast<int>(255.0F * opacity))
                       : IM_COL32(250, 253, 255, static_cast<int>(255.0F * opacity)),
                   label);
     return clicked;
@@ -159,11 +162,11 @@ bool toggle_switch(const char* label, bool* value) {
                 (1.0F - std::exp(-delta / 0.08F));
     storage->SetFloat(progress_id, progress);
     ImDrawList* draw = ImGui::GetWindowDrawList();
-    const int track_red = static_cast<int>((176.0F - hover * 12.0F) * (1.0F - progress));
-    const int track_green = static_cast<int>((189.0F - hover * 8.0F) * (1.0F - progress) +
-                                             (151.0F + hover * 13.0F) * progress);
-    const int track_blue = static_cast<int>((198.0F - hover * 4.0F) * (1.0F - progress) +
-                                            (190.0F + hover * 13.0F) * progress);
+    const int track_red = static_cast<int>((151.0F - hover * 10.0F) * (1.0F - progress));
+    const int track_green = static_cast<int>((169.0F - hover * 8.0F) * (1.0F - progress) +
+                                             (122.0F + hover * 10.0F) * progress);
+    const int track_blue = static_cast<int>((181.0F - hover * 4.0F) * (1.0F - progress) +
+                                            (151.0F + hover * 10.0F) * progress);
     const ImU32 track_color = IM_COL32(track_red, track_green, track_blue, 255);
     draw->AddRectFilled(start, {start.x + track_width, start.y + height},
                         track_color, height * 0.5F);
@@ -173,7 +176,7 @@ bool toggle_switch(const char* label, bool* value) {
                           IM_COL32(252, 254, 255, 255), 24);
     draw->AddText({start.x + track_width + gap,
                    start.y + (height - label_size.y) * 0.5F},
-                  IM_COL32(49, 65, 77, 255), label);
+                  ImGui::GetColorU32(text_primary), label);
     return clicked;
 }
 
@@ -184,7 +187,7 @@ void status_chip(const char* label, const ImVec4 color) {
         {cursor.x + radius, cursor.y + ImGui::GetTextLineHeight() * 0.5F},
         radius, ImGui::GetColorU32(color));
     ImGui::SetCursorScreenPos({cursor.x + radius * 2.0F + 8.0F, cursor.y});
-    ImGui::TextColored(color, "%s", label);
+    ImGui::TextColored(text_primary, "%s", label);
 }
 
 void metric_card(const char* id, const char* label, const char* value,
@@ -273,11 +276,11 @@ void GroundStationUi::draw_connection_page(float scale) {
     begin_card("ConnectionPolicy", {layout.width, 250.0F * scale});
     section_title("连接策略", "修改后立即生效，无需额外保存");
     bool policy_changed = toggle_switch("自动重连", &auto_reconnect_);
-    ImGui::SetNextItemWidth(210.0F * scale);
+    ImGui::SetNextItemWidth(300.0F * scale);
     policy_changed |= ImGui::SliderInt("心跳 (ms)", &heartbeat_ms_, 250, 5000);
-    ImGui::SetNextItemWidth(180.0F * scale);
+    ImGui::SetNextItemWidth(300.0F * scale);
     policy_changed |= ImGui::SliderInt("重连 (s)", &reconnect_seconds_, 1, 30);
-    ImGui::SetNextItemWidth(210.0F * scale);
+    ImGui::SetNextItemWidth(300.0F * scale);
     policy_changed |= ImGui::SliderInt("UDP MTU", &mtu_, 576, 1500);
     if (policy_changed) {
         backend_.apply_connection_settings(heartbeat_ms_, reconnect_seconds_, mtu_, auto_reconnect_);
@@ -289,30 +292,54 @@ void GroundStationUi::draw_connection_page(float scale) {
     begin_card("Discovery", {0.0F, 310.0F * scale});
     section_title("发现与连接", "使用 mDNS 扫描，也可以直接输入机器人地址");
     const bool discovery_wide = ImGui::GetContentRegionAvail().x >= 980.0F * scale;
-    ImGui::SetNextItemWidth(330.0F * scale);
-    ImGui::InputTextWithHint("##ServiceName", "mDNS 服务名", service_name_.data(),
-                             service_name_.size());
-    ImGui::SameLine();
-    ImGui::BeginDisabled(scanning_);
-    const bool scan_clicked =
-        secondary_button(scanning_ ? "正在扫描..." : "扫描机器人", 145.0F * scale);
-    ImGui::EndDisabled();
-    if (scan_clicked) {
-        backend_.scan_devices(service_name_.data());
-        scanning_ = true;
-        scanning_started_at_ = ImGui::GetTime();
-        set_feedback("设备扫描已启动");
+    bool scan_clicked = false;
+    bool direct_connect_clicked = false;
+    const int input_columns = discovery_wide ? 2 : 1;
+    if (ImGui::BeginTable("DiscoveryInputs", input_columns,
+                          ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextColumn();
+        const float scan_button_width = 145.0F * scale;
+        ImGui::SetNextItemWidth(std::max(160.0F * scale,
+            ImGui::GetContentRegionAvail().x - scan_button_width - ImGui::GetStyle().ItemSpacing.x));
+        ImGui::InputTextWithHint("##ServiceName", "mDNS 服务名", service_name_.data(),
+                                 service_name_.size());
+        ImGui::SameLine();
+        ImGui::BeginDisabled(scanning_);
+        scan_clicked = secondary_button(scanning_ ? "正在扫描..." : "扫描机器人",
+                                        scan_button_width);
+        ImGui::EndDisabled();
+
+        ImGui::TableNextColumn();
+        const float connect_button_width = 130.0F * scale;
+        ImGui::SetNextItemWidth(std::max(160.0F * scale,
+            ImGui::GetContentRegionAvail().x - connect_button_width -
+            ImGui::GetStyle().ItemSpacing.x));
+        ImGui::InputTextWithHint("##ManualAddress", "IP:端口", manual_address_.data(),
+                                 manual_address_.size());
+        ImGui::SameLine();
+        ImGui::BeginDisabled(connected_);
+        direct_connect_clicked = action_button("直接连接", connect_button_width);
+        ImGui::EndDisabled();
+        ImGui::EndTable();
     }
-    if (discovery_wide) ImGui::SameLine();
-    else ImGui::Dummy({0.0F, 5.0F * scale});
-    ImGui::SetNextItemWidth(280.0F * scale);
-    ImGui::InputTextWithHint("##ManualAddress", "IP:端口", manual_address_.data(),
-                             manual_address_.size());
-    ImGui::SameLine();
-    if (action_button("直接连接", 130.0F * scale)) {
-        backend_.connect_device({"手动地址", manual_address_.data(), 0});
-        connected_ = true;
-        set_feedback("手动连接请求已发送");
+    if (scan_clicked) {
+        if (!core::is_valid_service_name(service_name_.data())) {
+            set_feedback("mDNS 服务名不能为空");
+        } else {
+            backend_.scan_devices(service_name_.data());
+            scanning_ = true;
+            scanning_started_at_ = ImGui::GetTime();
+            set_feedback("设备扫描已启动");
+        }
+    }
+    if (direct_connect_clicked) {
+        if (!core::is_valid_endpoint(manual_address_.data())) {
+            set_feedback("机器人地址格式无效，请使用 IP:端口");
+        } else {
+            backend_.connect_device({"手动地址", manual_address_.data(), 0});
+            connected_ = true;
+            set_feedback("手动连接请求已发送");
+        }
     }
 
     ImGui::Separator();
@@ -361,7 +388,7 @@ void GroundStationUi::draw_connection_page(float scale) {
                               : device_scroll_target_);
         ImGui::EndChild();
         ImGui::PopStyleColor();
-        ImGui::BeginDisabled(selected_device_ < 0);
+        ImGui::BeginDisabled(selected_device_ < 0 || connected_);
         if (action_button("连接所选机器人", 175.0F * scale)) {
             backend_.connect_device(devices[static_cast<std::size_t>(selected_device_)]);
             connected_ = true;
@@ -432,23 +459,35 @@ void GroundStationUi::draw_video_page(float scale) {
 
     ImGui::Dummy({0.0F, layout.gap});
     const bool display_wide = ImGui::GetContentRegionAvail().x >= 820.0F * scale;
-    begin_card("DisplaySettings", {0.0F, display_wide ? 190.0F * scale : 275.0F * scale});
+    begin_card("DisplaySettings", {0.0F, display_wide ? 205.0F * scale : 330.0F * scale});
     section_title("显示模式", "更改后立即预览；30 秒内未确认会自动恢复");
     int next_resolution = resolution_index_;
     int next_window_mode = window_mode_;
     int next_display = display_index_;
-    ImGui::SetNextItemWidth(260.0F * scale);
-    const bool resolution_changed =
-        ImGui::Combo("分辨率", &next_resolution, resolutions, static_cast<int>(std::size(resolutions)));
-    if (display_wide) ImGui::SameLine();
-    ImGui::SetNextItemWidth(240.0F * scale);
-    const bool window_changed =
-        ImGui::Combo("窗口模式", &next_window_mode, window_modes,
-                     static_cast<int>(std::size(window_modes)));
-    if (display_wide) ImGui::SameLine();
-    ImGui::SetNextItemWidth(220.0F * scale);
-    const bool display_changed =
-        ImGui::Combo("目标显示器", &next_display, displays, static_cast<int>(std::size(displays)));
+    bool resolution_changed = false;
+    bool window_changed = false;
+    bool display_changed = false;
+    if (ImGui::BeginTable("DisplayOptions", display_wide ? 3 : 1,
+                          ImGuiTableFlags_SizingStretchSame)) {
+        ImGui::TableNextColumn();
+        ImGui::TextColored(text_secondary, "分辨率");
+        ImGui::SetNextItemWidth(-1.0F);
+        resolution_changed = ImGui::Combo("##Resolution", &next_resolution, resolutions,
+                                          static_cast<int>(std::size(resolutions)));
+
+        ImGui::TableNextColumn();
+        ImGui::TextColored(text_secondary, "窗口模式");
+        ImGui::SetNextItemWidth(-1.0F);
+        window_changed = ImGui::Combo("##WindowMode", &next_window_mode, window_modes,
+                                      static_cast<int>(std::size(window_modes)));
+
+        ImGui::TableNextColumn();
+        ImGui::TextColored(text_secondary, "目标显示器");
+        ImGui::SetNextItemWidth(-1.0F);
+        display_changed = ImGui::Combo("##TargetDisplay", &next_display, displays,
+                                       static_cast<int>(std::size(displays)));
+        ImGui::EndTable();
+    }
     if (resolution_changed || window_changed || display_changed) {
         const int old_resolution = resolution_index_;
         const int old_window_mode = window_mode_;
@@ -456,6 +495,7 @@ void GroundStationUi::draw_video_page(float scale) {
         resolution_index_ = next_resolution;
         window_mode_ = next_window_mode;
         display_index_ = next_display;
+        if (resolution_changed) queue_video_settings(true);
         begin_display_preview(old_resolution, old_window_mode, old_display);
     }
     ImGui::TextColored(text_secondary,
@@ -503,24 +543,47 @@ void GroundStationUi::draw_control_page(float scale) {
     ImGui::Dummy({0.0F, layout.gap});
     begin_card("KeyBindings", {layout.width, 570.0F * scale});
     section_title("键盘绑定", "按下按钮后，再按新的键完成绑定");
-    for (int index = 0; index < static_cast<int>(actions.size()); ++index) {
-        ImGui::TextColored(text_secondary, "%s", actions[index]);
-        ImGui::SameLine(210.0F * scale);
-        ImGui::PushID(index);
-        const char* key_name = rebinding_action_ == index
-                                   ? "等待按键..."
-                                   : ImGui::GetKeyName(static_cast<ImGuiKey>(key_bindings_[index]));
-        if (ImGui::Button(key_name, {145.0F * scale, 29.0F * scale})) rebinding_action_ = index;
-        ImGui::PopID();
+    if (ImGui::BeginTable("KeyBindingRows", 2, ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("动作", ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("按键", ImGuiTableColumnFlags_WidthFixed, 145.0F * scale);
+        for (int index = 0; index < static_cast<int>(actions.size()); ++index) {
+            ImGui::TableNextRow(0, ImGui::GetFrameHeight());
+            ImGui::TableNextColumn();
+            ImGui::AlignTextToFramePadding();
+            ImGui::TextColored(text_secondary, "%s", actions[index]);
+            ImGui::TableNextColumn();
+            ImGui::PushID(index);
+            const char* key_name = rebinding_action_ == index
+                                       ? "等待按键..."
+                                       : ImGui::GetKeyName(
+                                             static_cast<ImGuiKey>(key_bindings_[index]));
+            if (ImGui::Button(key_name, {-1.0F, 0.0F})) rebinding_action_ = index;
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    if (rebinding_action_ >= 0 && secondary_button("取消本次绑定", 150.0F * scale)) {
+        rebinding_action_ = -1;
+        set_feedback("已取消键位绑定");
     }
     if (rebinding_action_ >= 0) {
         for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; ++key) {
             if (ImGui::IsKeyPressed(static_cast<ImGuiKey>(key), false)) {
-                key_bindings_[static_cast<std::size_t>(rebinding_action_)] = key;
+                const int action = rebinding_action_;
+                const int previous_key = key_bindings_[static_cast<std::size_t>(action)];
+                bool swapped = false;
+                for (int other = 0; other < static_cast<int>(key_bindings_.size()); ++other) {
+                    if (other != action && key_bindings_[static_cast<std::size_t>(other)] == key) {
+                        key_bindings_[static_cast<std::size_t>(other)] = previous_key;
+                        swapped = true;
+                        break;
+                    }
+                }
+                key_bindings_[static_cast<std::size_t>(action)] = key;
                 rebinding_action_ = -1;
                 backend_.save_key_bindings(
                     std::vector<int>{key_bindings_.begin(), key_bindings_.end()});
-                set_feedback("键位已更新并保存");
+                set_feedback(swapped ? "按键已与原动作交换并保存" : "键位已更新并保存");
                 break;
             }
         }
@@ -539,10 +602,14 @@ void GroundStationUi::draw_control_page(float scale) {
     status_chip("未检测到手柄", text_secondary);
     ImGui::TextColored(text_secondary, "左摇杆移动，右摇杆控制视角");
     ImGui::SetNextItemWidth(300.0F * scale);
-    if (ImGui::SliderFloat("摇杆死区", &gamepad_deadzone_, 0.0F, 0.5F, "%.2f"))
+    if (ImGui::SliderFloat("摇杆死区", &gamepad_deadzone_, 0.0F, 0.5F, "%.2f")) {
         backend_.apply_gamepad_settings(gamepad_deadzone_, gamepad_vibration_);
-    if (toggle_switch("振动反馈", &gamepad_vibration_))
+        set_feedback("手柄死区已立即生效");
+    }
+    if (toggle_switch("振动反馈", &gamepad_vibration_)) {
         backend_.apply_gamepad_settings(gamepad_deadzone_, gamepad_vibration_);
+        set_feedback("手柄振动设置已立即生效");
+    }
     ImGui::Dummy({0.0F, 12.0F * scale});
     ImGui::TextWrapped("A / B / X / Y、LT / RT 和摇杆数据将在真实输入后端中映射；当前页面已经暴露完整配置接口。");
     end_card();
@@ -551,29 +618,36 @@ void GroundStationUi::draw_control_page(float scale) {
 void GroundStationUi::draw_recording_page(float scale) {
     constexpr const char* formats[] = {"MP4 (H.264)", "MKV (H.264)", "原始码流"};
     const ColumnLayout layout = columns(scale);
-    begin_card("RecordingFiles", {layout.width, 310.0F * scale});
-    section_title("文件与质量", "录制使用机器人回传的原始图传内容");
+    begin_card("RecordingFiles", {layout.width, 335.0F * scale});
+    section_title("文件与质量", "录制期间锁定参数，停止后可继续修改");
+    ImGui::BeginDisabled(recording_);
+    ImGui::TextColored(text_secondary, "保存目录");
     ImGui::SetNextItemWidth(-1.0F);
-    ImGui::InputTextWithHint("##RecordingDirectory", "保存目录", recording_directory_.data(),
+    ImGui::InputTextWithHint("##RecordingDirectory", "例如 recordings", recording_directory_.data(),
                              recording_directory_.size());
-    ImGui::SetNextItemWidth(280.0F * scale);
+    ImGui::SetNextItemWidth(300.0F * scale);
     ImGui::Combo("封装格式", &recording_format_, formats, static_cast<int>(std::size(formats)));
-    ImGui::SetNextItemWidth(280.0F * scale);
+    ImGui::SetNextItemWidth(300.0F * scale);
     ImGui::SliderInt("录制质量", &recording_quality_, 1, 100);
-    ImGui::SetNextItemWidth(280.0F * scale);
+    ImGui::SetNextItemWidth(300.0F * scale);
     ImGui::SliderInt("自动分段", &split_minutes_, 0, 120, "%d 分钟");
+    ImGui::EndDisabled();
     end_card();
     next_column_or_row(layout, scale);
-    begin_card("RecordingActions", {layout.width, 310.0F * scale});
+    begin_card("RecordingActions", {layout.width, 335.0F * scale});
     section_title("录制控制", "操作即时执行，不使用统一应用按钮");
     status_chip(recording_ ? "正在录制" : "未录制", recording_ ? danger : text_secondary);
     if (!recording_) {
         if (action_button("开始录制", 160.0F * scale)) {
-            backend_.start_recording(recording_directory_.data(), recording_format_,
-                                     recording_quality_, split_minutes_);
-            recording_ = true;
-            recording_started_at_ = ImGui::GetTime();
-            set_feedback("录像启动请求已发送");
+            if (!core::is_valid_directory(recording_directory_.data())) {
+                set_feedback("保存目录不能为空");
+            } else {
+                backend_.start_recording(recording_directory_.data(), recording_format_,
+                                         recording_quality_, split_minutes_);
+                recording_ = true;
+                recording_started_at_ = ImGui::GetTime();
+                set_feedback("录像启动请求已发送");
+            }
         }
     } else {
         const int elapsed = static_cast<int>(ImGui::GetTime() - recording_started_at_);
@@ -588,12 +662,20 @@ void GroundStationUi::draw_recording_page(float scale) {
     }
     ImGui::SameLine();
     if (secondary_button("截图", 110.0F * scale)) {
-        backend_.take_screenshot(recording_directory_.data());
-        set_feedback("截图请求已发送");
+        if (!core::is_valid_directory(recording_directory_.data())) {
+            set_feedback("保存目录不能为空");
+        } else {
+            backend_.take_screenshot(recording_directory_.data());
+            set_feedback("截图请求已发送");
+        }
     }
     if (secondary_button("打开保存目录", 160.0F * scale)) {
-        backend_.open_recordings_folder(recording_directory_.data());
-        set_feedback("打开录像目录请求已发送");
+        if (!core::is_valid_directory(recording_directory_.data())) {
+            set_feedback("保存目录不能为空");
+        } else {
+            backend_.open_recordings_folder(recording_directory_.data());
+            set_feedback("打开录像目录请求已发送");
+        }
     }
     end_card();
 }
@@ -667,10 +749,12 @@ void GroundStationUi::draw_diagnostics_page(float scale) {
     if (tools_wide) ImGui::SameLine();
     diagnostics_changed |= toggle_switch("详细日志", &verbose_log_);
     if (tools_wide) ImGui::SameLine();
-    diagnostics_changed |= toggle_switch("前端模拟模式", &simulation_mode_);
-    if (diagnostics_changed)
+    diagnostics_changed |= toggle_switch("后端模拟数据", &simulation_mode_);
+    if (diagnostics_changed) {
         backend_.apply_diagnostics_settings(show_performance_graph_, show_debug_info_,
-                                            verbose_log_, simulation_mode_);
+                                             verbose_log_, simulation_mode_);
+        set_feedback("诊断显示与后端选项已立即生效");
+    }
     if (secondary_button("清空性能曲线", 160.0F * scale)) {
         fps_history_.fill(0.0F);
         latency_history_.fill(0.0F);
@@ -698,8 +782,23 @@ void GroundStationUi::draw_audit_page(float scale) {
     }
     ImGui::SameLine();
     if (danger_button("清空日志", 125.0F * scale)) {
-        backend_.clear_audit_log();
-        set_feedback("日志清空请求已发送");
+        ImGui::OpenPopup("确认清空日志");
+    }
+    ImGui::SetNextWindowSize({420.0F * scale, 190.0F * scale}, ImGuiCond_Appearing);
+    if (ImGui::BeginPopupModal("确认清空日志", nullptr, ImGuiWindowFlags_NoResize)) {
+        ImGui::TextWrapped("这会删除当前全部审计记录，且无法在前端撤销。确定继续吗？");
+        ImGui::Dummy({0.0F, 14.0F * scale});
+        if (danger_button("确认清空", 135.0F * scale)) {
+            backend_.clear_audit_log();
+            set_feedback("日志清空请求已发送");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::SameLine();
+        if (secondary_button("取消", 110.0F * scale)) {
+            set_feedback("已取消清空日志");
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
     }
     end_card();
     ImGui::Dummy({0.0F, 12.0F * scale});
@@ -713,19 +812,22 @@ void GroundStationUi::draw_audit_page(float scale) {
         ImGui::TableSetupColumn("消息");
         ImGui::TableHeadersRow();
         const std::string_view filter{audit_filter_.data()};
+        bool has_match = false;
         for (const auto& entry : entries) {
             if (!filter.empty() && entry.time.find(filter) == std::string::npos &&
                 entry.level.find(filter) == std::string::npos &&
                 entry.message.find(filter) == std::string::npos) continue;
+            has_match = true;
             ImGui::TableNextRow();
             ImGui::TableNextColumn(); ImGui::TextUnformatted(entry.time.c_str());
             ImGui::TableNextColumn(); ImGui::TextUnformatted(entry.level.c_str());
             ImGui::TableNextColumn(); ImGui::TextUnformatted(entry.message.c_str());
         }
-        if (entries.empty()) {
+        if (!has_match) {
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
-            ImGui::TextColored(text_secondary, "暂无日志记录");
+            ImGui::TextColored(text_secondary, "%s",
+                               entries.empty() ? "暂无日志记录" : "没有匹配的日志记录");
         }
         ImGui::EndTable();
     }
@@ -760,20 +862,43 @@ void GroundStationUi::draw_interface_page(float scale) {
     const ImVec2 p1{p0.x + ImGui::GetContentRegionAvail().x, p0.y + 190.0F * scale};
     ImDrawList* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(p0, p1, IM_COL32(18, 28, 38, 255), 8.0F * scale);
-    draw->AddText({p0.x + 16.0F * scale, p0.y + 20.0F * scale},
-                  IM_COL32(241, 247, 250, 230), "W   SHIFT   MOUSE-L");
-    draw->AddText({p1.x - 180.0F * scale, p1.y - 116.0F * scale},
-                  IM_COL32(0, 190, 225, 240), "FPS        60.0");
-    draw->AddText({p1.x - 180.0F * scale, p1.y - 90.0F * scale},
-                  IM_COL32(225, 236, 242, 230), "BITRATE  12.4 Mbps");
-    draw->AddText({p1.x - 180.0F * scale, p1.y - 64.0F * scale},
-                  IM_COL32(225, 236, 242, 230), "RTT        18 ms");
-    draw->AddText({p1.x - 180.0F * scale, p1.y - 38.0F * scale},
-                  IM_COL32(225, 236, 242, 230), "LOSS        0.2 %");
-    const char* ready = "NOT READY";
-    const ImVec2 ready_size = ImGui::CalcTextSize(ready);
-    draw->AddText({(p0.x + p1.x - ready_size.x) * 0.5F, p1.y - 28.0F * scale},
-                  IM_COL32(238, 94, 84, 240), ready);
+    const float preview_unit = scale * hud_scale_;
+    const float preview_font_size = ImGui::GetFontSize() * hud_scale_;
+    const int preview_alpha = static_cast<int>(255.0F * hud_opacity_);
+    if (show_input_hud_) {
+        draw->AddText(ImGui::GetFont(), preview_font_size,
+                      {p0.x + 16.0F * preview_unit, p0.y + 16.0F * preview_unit},
+                      IM_COL32(241, 247, 250, preview_alpha), "W  SHIFT  MOUSE-L");
+    }
+    if (show_status_hud_) {
+        constexpr std::array<const char*, 4> preview_labels{"FPS", "BITRATE", "RTT", "LOSS"};
+        constexpr std::array<const char*, 4> preview_values{
+            "60.0", "12.4 Mbps", "18 ms", "0.2 %"};
+        const float left = p1.x - 210.0F * preview_unit;
+        for (int index = 0; index < 4; ++index) {
+            const float y = p0.y + (18.0F + index * 27.0F) * preview_unit;
+            draw->AddText(ImGui::GetFont(), preview_font_size, {left, y},
+                          IM_COL32(170, 191, 202, preview_alpha),
+                          preview_labels[static_cast<std::size_t>(index)]);
+            const ImVec2 value_size = ImGui::GetFont()->CalcTextSizeA(
+                preview_font_size, 10000.0F, 0.0F,
+                preview_values[static_cast<std::size_t>(index)]);
+            draw->AddText(ImGui::GetFont(), preview_font_size,
+                          {p1.x - 16.0F * preview_unit - value_size.x, y},
+                          index == 0 ? IM_COL32(34, 210, 240, preview_alpha)
+                                     : IM_COL32(241, 247, 250, preview_alpha),
+                          preview_values[static_cast<std::size_t>(index)]);
+        }
+    }
+    if (show_ready_hud_) {
+        const char* ready = "NOT READY";
+        const ImVec2 ready_size = ImGui::GetFont()->CalcTextSizeA(
+            preview_font_size, 10000.0F, 0.0F, ready);
+        draw->AddText(ImGui::GetFont(), preview_font_size,
+                      {(p0.x + p1.x - ready_size.x) * 0.5F,
+                       p1.y - 28.0F * preview_unit},
+                      IM_COL32(238, 94, 84, preview_alpha), ready);
+    }
     ImGui::Dummy({0.0F, 190.0F * scale});
     end_card();
 
@@ -806,6 +931,7 @@ void GroundStationUi::draw_display_confirmation(float scale) {
             resolution_index_ = previous_resolution_index_;
             window_mode_ = previous_window_mode_;
             display_index_ = previous_display_index_;
+            queue_video_settings(true);
             backend_.revert_display_settings();
             display_confirmation_open_ = false;
             set_feedback(remaining <= 0 ? "确认超时，显示设置已自动回滚" : "显示设置已回滚");
@@ -819,7 +945,7 @@ void GroundStationUi::draw_about_dialog(float scale) {
     if (!about_open_) return;
     ImGui::OpenPopup("关于 PIP-Link");
     ImGui::SetNextWindowSize({520.0F * scale, 285.0F * scale}, ImGuiCond_Appearing);
-    if (ImGui::BeginPopupModal("关于 PIP-Link", nullptr, ImGuiWindowFlags_NoResize)) {
+    if (ImGui::BeginPopupModal("关于 PIP-Link", &about_open_, ImGuiWindowFlags_NoResize)) {
         ImGui::SetWindowFontScale(1.45F);
         ImGui::TextColored(accent, "PIP-Link");
         ImGui::SetWindowFontScale(1.0F);
