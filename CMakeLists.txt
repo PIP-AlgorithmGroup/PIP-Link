@@ -3,11 +3,11 @@ cmake_minimum_required(VERSION 3.24)
 project(
     PIPLinkGroundStation
     VERSION 0.1.0
-    DESCRIPTION "PIP-Link C++ ground station"
+    DESCRIPTION "PIP-Link C++ first-person robot control client"
     LANGUAGES CXX
 )
 
-option(PIP_LINK_BUILD_TESTS "Build PIP-Link ground station tests" ON)
+option(PIP_LINK_BUILD_TESTS "Build PIP-Link client tests" ON)
 option(PIP_LINK_BUILD_GUI "Build the SDL3 + Dear ImGui desktop shell" ON)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -82,6 +82,7 @@ if(PIP_LINK_BUILD_GUI)
         ground_station/src/backend/ground_station_backend_stub.cpp
         ground_station/src/platform/desktop_window.cpp
         ground_station/src/ui/ground_station_ui.cpp
+        ground_station/src/ui/ground_station_settings.cpp
     )
     target_include_directories(pip_link_desktop PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/ground_station/include>

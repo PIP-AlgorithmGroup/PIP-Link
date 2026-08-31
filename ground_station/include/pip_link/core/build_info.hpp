@@ -6,7 +6,7 @@ namespace pip_link::core {
 
 struct BuildInfo final {
     [[nodiscard]] static constexpr std::string_view product_name() noexcept {
-        return "PIP-Link Ground Station";
+        return "PIP-Link Robot Control Client";
     }
 
     [[nodiscard]] static std::string_view version() noexcept;

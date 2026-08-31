@@ -48,8 +48,28 @@ void GroundStationBackendStub::apply_video_settings(int, int, int, int, int, int
     // TODO: 更新视频接收与解码配置。
 }
 
+void GroundStationBackendStub::preview_display_settings(int, int, int) {
+    // TODO: 预览分辨率、窗口模式和目标显示器，并保存可回滚的旧窗口状态。
+}
+
+void GroundStationBackendStub::confirm_display_settings() {
+    // TODO: 确认当前窗口预览并持久化显示设置。
+}
+
+void GroundStationBackendStub::revert_display_settings() {
+    // TODO: 回滚到预览前的窗口和显示器设置。
+}
+
 void GroundStationBackendStub::apply_control_settings(float, bool, bool, bool) {
     // TODO: 更新输入采集与控制发送配置。
+}
+
+void GroundStationBackendStub::apply_interface_settings(float, float, bool, bool, bool, int) {
+    // TODO: 持久化 HUD、透明度、缩放和语言设置。
+}
+
+void GroundStationBackendStub::apply_diagnostics_settings(bool, bool, bool, bool) {
+    // TODO: 持久化性能曲线、原始调试信息、日志详细度和模拟诊断开关。
 }
 
 void GroundStationBackendStub::set_ready(bool) {

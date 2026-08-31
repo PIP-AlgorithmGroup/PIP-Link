@@ -57,23 +57,25 @@ void apply_theme(float scale) {
     style.ScaleAllSizes(scale);
 
     auto& colors = style.Colors;
-    colors[ImGuiCol_Text] = {0.88F, 0.91F, 0.96F, 1.00F};
-    colors[ImGuiCol_TextDisabled] = {0.42F, 0.46F, 0.54F, 1.00F};
-    colors[ImGuiCol_WindowBg] = {0.035F, 0.043F, 0.060F, 1.00F};
-    colors[ImGuiCol_ChildBg] = {0.055F, 0.064F, 0.085F, 1.00F};
-    colors[ImGuiCol_Border] = {0.16F, 0.19F, 0.25F, 0.72F};
-    colors[ImGuiCol_FrameBg] = {0.075F, 0.088F, 0.115F, 1.00F};
-    colors[ImGuiCol_FrameBgHovered] = {0.09F, 0.18F, 0.22F, 1.00F};
-    colors[ImGuiCol_FrameBgActive] = {0.05F, 0.34F, 0.40F, 1.00F};
-    colors[ImGuiCol_Button] = {0.06F, 0.15F, 0.19F, 1.00F};
-    colors[ImGuiCol_ButtonHovered] = {0.02F, 0.43F, 0.50F, 1.00F};
-    colors[ImGuiCol_ButtonActive] = {0.00F, 0.68F, 0.78F, 1.00F};
-    colors[ImGuiCol_CheckMark] = {0.00F, 0.85F, 1.00F, 1.00F};
-    colors[ImGuiCol_SliderGrab] = {0.00F, 0.72F, 0.85F, 1.00F};
-    colors[ImGuiCol_SliderGrabActive] = {0.00F, 0.90F, 1.00F, 1.00F};
-    colors[ImGuiCol_Header] = {0.04F, 0.20F, 0.25F, 1.00F};
-    colors[ImGuiCol_HeaderHovered] = {0.02F, 0.39F, 0.46F, 1.00F};
-    colors[ImGuiCol_HeaderActive] = {0.00F, 0.62F, 0.72F, 1.00F};
+    colors[ImGuiCol_Text] = {0.10F, 0.14F, 0.20F, 1.00F};
+    colors[ImGuiCol_TextDisabled] = {0.48F, 0.52F, 0.59F, 1.00F};
+    colors[ImGuiCol_WindowBg] = {0.93F, 0.95F, 0.97F, 1.00F};
+    colors[ImGuiCol_ChildBg] = {0.985F, 0.990F, 1.00F, 1.00F};
+    colors[ImGuiCol_PopupBg] = {0.99F, 0.995F, 1.00F, 1.00F};
+    colors[ImGuiCol_Border] = {0.77F, 0.81F, 0.86F, 0.85F};
+    colors[ImGuiCol_FrameBg] = {0.90F, 0.93F, 0.96F, 1.00F};
+    colors[ImGuiCol_FrameBgHovered] = {0.82F, 0.91F, 0.95F, 1.00F};
+    colors[ImGuiCol_FrameBgActive] = {0.74F, 0.88F, 0.93F, 1.00F};
+    colors[ImGuiCol_Button] = {0.82F, 0.91F, 0.95F, 1.00F};
+    colors[ImGuiCol_ButtonHovered] = {0.66F, 0.85F, 0.92F, 1.00F};
+    colors[ImGuiCol_ButtonActive] = {0.48F, 0.78F, 0.88F, 1.00F};
+    colors[ImGuiCol_CheckMark] = {0.00F, 0.58F, 0.78F, 1.00F};
+    colors[ImGuiCol_SliderGrab] = {0.00F, 0.58F, 0.78F, 1.00F};
+    colors[ImGuiCol_SliderGrabActive] = {0.00F, 0.70F, 0.88F, 1.00F};
+    colors[ImGuiCol_Header] = {0.80F, 0.90F, 0.94F, 1.00F};
+    colors[ImGuiCol_HeaderHovered] = {0.64F, 0.84F, 0.91F, 1.00F};
+    colors[ImGuiCol_HeaderActive] = {0.48F, 0.78F, 0.87F, 1.00F};
+    colors[ImGuiCol_Separator] = {0.76F, 0.81F, 0.86F, 0.85F};
     colors[ImGuiCol_ScrollbarBg] = {0.0F, 0.0F, 0.0F, 0.0F};
     colors[ImGuiCol_ScrollbarGrab] = {0.0F, 0.0F, 0.0F, 0.0F};
     colors[ImGuiCol_ScrollbarGrabHovered] = {0.0F, 0.0F, 0.0F, 0.0F};
@@ -184,7 +186,7 @@ int DesktopWindow::run() {
     }
 
     impl_->window = SDL_CreateWindow(
-        "PIP-Link 地面站",
+        "PIP-Link",
         initial_width,
         initial_height,
         SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
@@ -238,6 +240,10 @@ int DesktopWindow::run() {
             if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED &&
                 event.window.windowID == SDL_GetWindowID(impl_->window)) {
                 impl_->resize(event.window.data1, event.window.data2);
+            }
+            if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST &&
+                event.window.windowID == SDL_GetWindowID(impl_->window)) {
+                impl_->ui.on_focus_lost();
             }
         }
 

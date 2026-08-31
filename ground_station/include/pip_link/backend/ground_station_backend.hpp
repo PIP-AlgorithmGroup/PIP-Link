@@ -64,8 +64,19 @@ public:
                                       float fec_redundancy, int brightness,
                                       int contrast, int sharpness, int denoise,
                                       bool low_latency, bool vertical_sync) = 0;
+    virtual void preview_display_settings(int resolution_index, int window_mode,
+                                          int display_index) = 0;
+    virtual void confirm_display_settings() = 0;
+    virtual void revert_display_settings() = 0;
     virtual void apply_control_settings(float mouse_sensitivity, bool invert_y,
                                         bool capture_mouse, bool send_keyboard) = 0;
+    virtual void apply_interface_settings(float hud_scale, float hud_opacity,
+                                          bool show_input, bool show_statistics,
+                                          bool show_ready, int language_index) = 0;
+    virtual void apply_diagnostics_settings(bool show_performance_graph,
+                                            bool show_debug_info,
+                                            bool verbose_log,
+                                            bool simulation_mode) = 0;
     virtual void set_ready(bool ready) = 0;
     virtual void start_recording(const std::string& directory, int format_index,
                                  int quality, int split_minutes) = 0;
@@ -102,8 +113,19 @@ public:
                               float fec_redundancy, int brightness,
                               int contrast, int sharpness, int denoise,
                               bool low_latency, bool vertical_sync) override;
+    void preview_display_settings(int resolution_index, int window_mode,
+                                  int display_index) override;
+    void confirm_display_settings() override;
+    void revert_display_settings() override;
     void apply_control_settings(float mouse_sensitivity, bool invert_y,
                                 bool capture_mouse, bool send_keyboard) override;
+    void apply_interface_settings(float hud_scale, float hud_opacity,
+                                  bool show_input, bool show_statistics,
+                                  bool show_ready, int language_index) override;
+    void apply_diagnostics_settings(bool show_performance_graph,
+                                    bool show_debug_info,
+                                    bool verbose_log,
+                                    bool simulation_mode) override;
     void set_ready(bool ready) override;
     void start_recording(const std::string& directory, int format_index,
                          int quality, int split_minutes) override;
