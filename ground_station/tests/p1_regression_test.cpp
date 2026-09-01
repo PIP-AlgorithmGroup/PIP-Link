@@ -26,6 +26,7 @@ public:
 
     void set_ready(bool ready) override {
         last_ready = ready;
+        state.ready = ready;
         ++ready_requests;
     }
 
@@ -130,6 +131,7 @@ int main() {
     }
 
     backend.state.connection = pip_link::backend::ConnectionState::connected;
+    backend.state.video_available = true;
     draw_frame(ui);
     press_key(ui, ImGuiKey_F6);
     if (backend.ready_requests != 1 || !backend.last_ready ||
@@ -144,9 +146,21 @@ int main() {
         return 1;
     }
     ui.set_mouse_capture_active(true);
+    pip_link::ui::GamepadSnapshot gamepad{};
+    gamepad.connected = true;
+    gamepad.name = "Test Gamepad";
+    gamepad.left_y = -1.0F;
+    gamepad.right_x = 0.5F;
+    gamepad.left_shoulder = true;
+    ui.set_gamepad_snapshot(gamepad);
     draw_frame(ui);
     if (backend.control_packets != 1) {
         std::cerr << "Control input was not sent after mouse capture confirmation.\n";
+        return 1;
+    }
+    if (!bit_is_set(backend.last_input, 29) || !bit_is_set(backend.last_input, 54) ||
+        backend.last_input.mouse_delta_x <= 0.0F) {
+        std::cerr << "Gamepad movement was not mapped into control input.\n";
         return 1;
     }
 
@@ -180,6 +194,13 @@ int main() {
     pip_link::ui::map_physical_key(old_binding, ImGuiKey_W, bindings);
     if (bit_is_set(old_binding, 29)) {
         std::cerr << "Old forward key remained active after rebinding.\n";
+        return 1;
+    }
+    const auto visuals = pip_link::ui::protocol_key_visuals();
+    if (std::none_of(visuals.begin(), visuals.end(), [](const auto& visual) {
+            return visual.imgui_key == ImGuiKey_F5;
+        })) {
+        std::cerr << "F5 is missing from the input protocol preview.\n";
         return 1;
     }
 

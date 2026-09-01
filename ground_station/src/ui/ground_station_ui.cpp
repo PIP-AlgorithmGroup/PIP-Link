@@ -105,6 +105,7 @@ GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backe
     heartbeat_ms_ = settings.heartbeat_ms;
     reconnect_seconds_ = settings.reconnect_seconds;
     mtu_ = settings.mtu;
+    manual_video_port_ = settings.last_video_port;
     auto_reconnect_ = settings.auto_reconnect;
     mouse_sensitivity_ = settings.mouse_sensitivity;
     field_of_view_ = settings.field_of_view;
@@ -173,6 +174,14 @@ bool GroundStationUi::wants_relative_mouse_mode() const noexcept {
 
 void GroundStationUi::set_mouse_capture_active(bool active) noexcept {
     mouse_capture_active_ = active;
+}
+
+void GroundStationUi::set_gamepad_snapshot(GamepadSnapshot snapshot) {
+    gamepad_ = std::move(snapshot);
+}
+
+bool GroundStationUi::gamepad_vibration_enabled() const noexcept {
+    return gamepad_vibration_;
 }
 
 bool GroundStationUi::is_connected() const noexcept {
@@ -264,7 +273,7 @@ void GroundStationUi::toggle_ready() {
                  (requested ? "等待有效视频信号，不能进入 READY" : "已退出 READY 状态"));
 }
 
-void GroundStationUi::submit_control_input() {
+void GroundStationUi::submit_control_input(float delta_seconds) {
     if (!ready_ || settings_open_ || console_open_) return;
     if (capture_mouse_ && !mouse_capture_active_) return;
     ImGuiIO& io = ImGui::GetIO();
@@ -292,6 +301,33 @@ void GroundStationUi::submit_control_input() {
                 map_physical_key(input, physical_key, key_bindings_);
             }
         }
+    }
+    if (gamepad_.connected) {
+        const auto axis = [this](float value) {
+            const float magnitude = std::abs(value);
+            if (magnitude <= gamepad_deadzone_) return 0.0F;
+            return std::copysign((magnitude - gamepad_deadzone_) /
+                                 std::max(0.001F, 1.0F - gamepad_deadzone_), value);
+        };
+        const float left_x = axis(gamepad_.left_x);
+        const float left_y = axis(gamepad_.left_y);
+        if (left_y < 0.0F) map_physical_key(input, key_bindings_[forward_binding], key_bindings_);
+        if (left_y > 0.0F) map_physical_key(input, key_bindings_[backward_binding], key_bindings_);
+        if (left_x < 0.0F) map_physical_key(input, key_bindings_[left_binding], key_bindings_);
+        if (left_x > 0.0F) map_physical_key(input, key_bindings_[right_binding], key_bindings_);
+        if (gamepad_.left_shoulder) {
+            map_physical_key(input, key_bindings_[sprint_binding], key_bindings_);
+        }
+        if (gamepad_.south) {
+            map_physical_key(input, key_bindings_[special_one_binding], key_bindings_);
+        }
+        if (gamepad_.right_trigger > 0.5F) {
+            map_physical_key(input, key_bindings_[special_two_binding], key_bindings_);
+        }
+        constexpr float gamepad_look_speed = 900.0F;
+        input.mouse_delta_x += axis(gamepad_.right_x) * gamepad_look_speed * delta_seconds;
+        input.mouse_delta_y += axis(gamepad_.right_y) * gamepad_look_speed * delta_seconds *
+                               (invert_y_ || invert_pitch_ ? -1.0F : 1.0F);
     }
     backend_.submit_control_input(input);
 }
@@ -378,7 +414,7 @@ void GroundStationUi::draw(float delta_seconds, float display_scale) {
     fps_history_.back() = telemetry.fps;
     latency_history_.back() = telemetry.latency_ms;
 
-    submit_control_input();
+    submit_control_input(delta_seconds);
     if (settings_open_) draw_settings(delta_seconds, display_scale);
     else draw_fpv(delta_seconds, display_scale);
     draw_console(delta_seconds, display_scale);
@@ -497,13 +533,9 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
                        bottom_right.y - 34.0F * scale},
                       IM_COL32(70, 88, 101, 235),
                       "C++20  ·  SDL3  ·  Direct3D 11");
-        ImGui::End();
-        ImGui::PopStyleVar();
-        return;
-    }
-
-    draw->AddRectFilled(origin, {origin.x + size.x, origin.y + size.y}, IM_COL32(5, 7, 10, 255));
-    if (has_video) {
+    } else {
+        draw->AddRectFilled(origin, {origin.x + size.x, origin.y + size.y},
+                            IM_COL32(5, 7, 10, 255));
         const float canvas_aspect = size.x / size.y;
         const float video_aspect = static_cast<float>(video.width) /
                                    static_cast<float>(video.height);

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 
@@ -51,9 +52,9 @@ private:
     std::unique_ptr<MdnsService>     mdns_;
 
     double prev_t1_{-1.0};
-    double client_timeout_s_{5.0};
+    std::atomic<double> client_timeout_s_{5.0};
     bool   frame_received_{false};
-    bool   debug_verbose_{false};
+    std::atomic<bool> debug_verbose_{false};
 };
 
 }  // namespace remote_link

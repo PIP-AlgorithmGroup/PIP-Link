@@ -6,6 +6,7 @@
 #include <std_msgs/msg/string.hpp>
 #include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <nlohmann/json.hpp>
+#include <opencv2/imgproc.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <chrono>
 #include <algorithm>
@@ -103,7 +104,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     control_rx_->set_param_query_callback(
         [this] { return params_to_json(); });
 
-    control_rx_->set_verbose(debug_verbose_);
+    control_rx_->set_verbose(debug_verbose_.load());
     control_rx_->start();
 
     // --- MdnsService ---
@@ -148,14 +149,63 @@ RemoteLinkNode::~RemoteLinkNode() {
 }
 
 void RemoteLinkNode::on_frame(sensor_msgs::msg::Image::ConstSharedPtr msg) {
+    if (msg->width == 0 || msg->height == 0 || msg->data.empty()) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Ignoring an empty video frame");
+        return;
+    }
+
+    int source_type = 0;
+    int conversion = -1;
+    std::size_t bytes_per_pixel = 0;
+    if (msg->encoding == "bgr8") {
+        source_type = CV_8UC3;
+        bytes_per_pixel = 3;
+    } else if (msg->encoding == "rgb8") {
+        source_type = CV_8UC3;
+        bytes_per_pixel = 3;
+        conversion = cv::COLOR_RGB2BGR;
+    } else if (msg->encoding == "bgra8") {
+        source_type = CV_8UC4;
+        bytes_per_pixel = 4;
+        conversion = cv::COLOR_BGRA2BGR;
+    } else if (msg->encoding == "rgba8") {
+        source_type = CV_8UC4;
+        bytes_per_pixel = 4;
+        conversion = cv::COLOR_RGBA2BGR;
+    } else if (msg->encoding == "mono8") {
+        source_type = CV_8UC1;
+        bytes_per_pixel = 1;
+        conversion = cv::COLOR_GRAY2BGR;
+    } else {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Unsupported video encoding: %s", msg->encoding.c_str());
+        return;
+    }
+
+    const std::size_t minimum_step = static_cast<std::size_t>(msg->width) * bytes_per_pixel;
+    const std::size_t required_size = static_cast<std::size_t>(msg->step) * msg->height;
+    if (msg->step < minimum_step || msg->data.size() < required_size) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Ignoring malformed video frame: step=%u size=%zu",
+                             msg->step, msg->data.size());
+        return;
+    }
+
     if (!frame_received_) {
         frame_received_ = true;
         RCLCPP_INFO(get_logger(), "First frame received: %ux%u encoding=%s",
                     msg->width, msg->height, msg->encoding.c_str());
     }
-    cv::Mat frame(static_cast<int>(msg->height), static_cast<int>(msg->width),
-                  CV_8UC3, const_cast<uint8_t*>(msg->data.data()));
-    video_tx_->push_frame(frame);
+    const cv::Mat source(static_cast<int>(msg->height), static_cast<int>(msg->width),
+                         source_type, const_cast<uint8_t*>(msg->data.data()), msg->step);
+    if (conversion < 0) {
+        video_tx_->push_frame(source);
+    } else {
+        cv::Mat bgr;
+        cv::cvtColor(source, bgr, conversion);
+        video_tx_->push_frame(bgr);
+    }
 }
 
 void RemoteLinkNode::on_command(
@@ -301,10 +351,10 @@ RemoteLinkNode::on_parameter_change(const std::vector<rclcpp::Parameter>& params
     }
     for (const auto& p : params) {
         if (p.get_name() == "debug.verbose") {
-            debug_verbose_ = p.as_bool();
-            if (control_rx_) control_rx_->set_verbose(debug_verbose_);
+            debug_verbose_.store(p.as_bool());
+            if (control_rx_) control_rx_->set_verbose(debug_verbose_.load());
         } else if (p.get_name() == "client_timeout_s") {
-            client_timeout_s_ = p.as_double();
+            client_timeout_s_.store(p.as_double());
         }
     }
     if (video_changed) apply_video_config(params);
@@ -350,7 +400,7 @@ void RemoteLinkNode::apply_video_config(const std::vector<rclcpp::Parameter>& ch
 
 void RemoteLinkNode::watchdog_tick() {
     double last = control_rx_ ? control_rx_->last_client_time() : 0.0;
-    if (last > 0.0 && (now_sec() - last) > client_timeout_s_) {
+    if (last > 0.0 && (now_sec() - last) > client_timeout_s_.load()) {
         RCLCPP_WARN(get_logger(), "Client timeout, stopping video stream");
         video_tx_->clear_client_addr();
     }
@@ -369,7 +419,7 @@ void RemoteLinkNode::diagnostic_tick() {
     j["has_client"]           = video_tx_->has_client();
 
     std::string payload = j.dump();
-    if (debug_verbose_) {
+    if (debug_verbose_.load()) {
         RCLCPP_INFO(get_logger(), "stats: %s", payload.c_str());
     }
 

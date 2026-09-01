@@ -20,10 +20,10 @@
 **Goal**: 校验持久化配置、修复 ROS 参数数据竞争，完成手柄入口和手动端口配置。
 **Success Criteria**: 坏配置安全回退；参数访问同步；手柄状态不再伪报；手动连接支持独立视频端口。
 **Tests**: 配置回归测试、ROS 源码契约测试、输入测试。
-**Status**: In Progress
+**Status**: Complete
 
 ## Stage 5: UI 规范与完整验证
 **Goal**: 修复无视频 HUD、滚动/Combo 规范和干净 Release 构建。
 **Success Criteria**: HUD 状态始终可见；设置页交互符合项目规范；Debug/Release 构建与全量测试通过。
 **Tests**: UI 回归测试、全量 CTest、静态检查、干净 Release 配置。
-**Status**: Not Started
+**Status**: In Progress

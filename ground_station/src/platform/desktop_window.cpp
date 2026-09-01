@@ -14,6 +14,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <utility>
 
 namespace pip_link::platform {
@@ -106,6 +107,63 @@ struct DesktopWindow::Impl final {
     float display_scale{1.0F};
     std::unique_ptr<backend::GroundStationBackendRuntime> backend;
     std::unique_ptr<ui::GroundStationUi> ui;
+    SDL_Gamepad* gamepad{nullptr};
+    std::optional<bool> last_vibration_setting;
+
+    void open_gamepad(SDL_JoystickID id) {
+        if (gamepad != nullptr) return;
+        gamepad = SDL_OpenGamepad(id);
+        if (gamepad == nullptr) {
+            std::cerr << "Gamepad open failed: " << SDL_GetError() << '\n';
+        }
+    }
+
+    void open_first_gamepad() {
+        if (gamepad != nullptr) return;
+        int count = 0;
+        SDL_JoystickID* ids = SDL_GetGamepads(&count);
+        if (ids != nullptr && count > 0) open_gamepad(ids[0]);
+        SDL_free(ids);
+    }
+
+    void close_gamepad() {
+        if (gamepad != nullptr) {
+            SDL_CloseGamepad(gamepad);
+            gamepad = nullptr;
+        }
+        last_vibration_setting.reset();
+    }
+
+    void update_gamepad() {
+        if (!ui) return;
+        if (gamepad != nullptr && !SDL_GamepadConnected(gamepad)) close_gamepad();
+        if (gamepad == nullptr) open_first_gamepad();
+        ui::GamepadSnapshot snapshot{};
+        if (gamepad != nullptr) {
+            const auto axis = [this](SDL_GamepadAxis value) {
+                return std::clamp(static_cast<float>(SDL_GetGamepadAxis(gamepad, value)) /
+                                  32767.0F, -1.0F, 1.0F);
+            };
+            snapshot.connected = true;
+            const char* name = SDL_GetGamepadName(gamepad);
+            snapshot.name = name != nullptr ? name : "SDL Gamepad";
+            snapshot.left_x = axis(SDL_GAMEPAD_AXIS_LEFTX);
+            snapshot.left_y = axis(SDL_GAMEPAD_AXIS_LEFTY);
+            snapshot.right_x = axis(SDL_GAMEPAD_AXIS_RIGHTX);
+            snapshot.right_y = axis(SDL_GAMEPAD_AXIS_RIGHTY);
+            snapshot.right_trigger = std::max(0.0F, axis(SDL_GAMEPAD_AXIS_RIGHT_TRIGGER));
+            snapshot.south = SDL_GetGamepadButton(gamepad, SDL_GAMEPAD_BUTTON_SOUTH);
+            snapshot.left_shoulder = SDL_GetGamepadButton(
+                gamepad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+            const bool vibration = ui->gamepad_vibration_enabled();
+            if (last_vibration_setting && *last_vibration_setting != vibration) {
+                SDL_RumbleGamepad(gamepad, vibration ? 0x3000U : 0U,
+                                  vibration ? 0x3000U : 0U, vibration ? 180U : 0U);
+            }
+            last_vibration_setting = vibration;
+        }
+        ui->set_gamepad_snapshot(std::move(snapshot));
+    }
 
     bool create_render_target() {
         ID3D11Texture2D* back_buffer = nullptr;
@@ -185,6 +243,7 @@ struct DesktopWindow::Impl final {
     }
 
     void shutdown() {
+        close_gamepad();
         ui.reset();
         backend.reset();
         if (ImGui::GetCurrentContext() != nullptr) {
@@ -287,6 +346,7 @@ int DesktopWindow::run() {
         impl_->backend->confirm_display_settings();
     }
     impl_->ui = std::make_unique<ui::GroundStationUi>(*impl_->backend);
+    impl_->open_first_gamepad();
 
     bool running = true;
     auto last_frame = std::chrono::steady_clock::now();
@@ -309,6 +369,12 @@ int DesktopWindow::run() {
                 event.window.windowID == SDL_GetWindowID(impl_->window)) {
                 impl_->ui->on_focus_lost();
             }
+            if (event.type == SDL_EVENT_GAMEPAD_ADDED) {
+                impl_->open_gamepad(event.gdevice.which);
+            } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED && impl_->gamepad != nullptr &&
+                       SDL_GetGamepadID(impl_->gamepad) == event.gdevice.which) {
+                impl_->close_gamepad();
+            }
         }
 
         if (!running) break;
@@ -321,6 +387,7 @@ int DesktopWindow::run() {
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
+        impl_->update_gamepad();
         impl_->ui->draw(delta_seconds, impl_->display_scale);
         impl_->update_mouse_capture();
         if (impl_->ui->quit_requested()) {

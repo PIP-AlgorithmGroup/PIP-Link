@@ -11,6 +11,7 @@
 #include <windns.h>
 #include <d3d11.h>
 #include <SDL3/SDL.h>
+#include <imgui.h>
 
 #include <algorithm>
 #include <array>
@@ -293,6 +294,7 @@ public:
         const int winsock_result = WSAStartup(MAKEWORD(2, 2), &winsock_);
         winsock_ready_ = winsock_result == 0;
         load_config();
+        sanitize_config();
         low_latency_ = config_.low_latency;
         load_audit();
         decoder_.set_h264_preference(config_.decoder_index);
@@ -412,6 +414,8 @@ public:
                     config_.service_name = value;
                 } else if (key == "last_endpoint") {
                     config_.last_endpoint = value;
+                } else if (key == "last_video_port") {
+                    config_.last_video_port = std::stoi(value);
                 } else if (key == "recording_directory") {
                     config_.recording_directory = value;
                 } else if (key.starts_with("key_")) {
@@ -424,6 +428,55 @@ public:
             } catch (...) {
                 // Ignore one malformed property and preserve all valid properties.
             }
+        }
+    }
+
+    void sanitize_config() {
+        const RuntimeConfig defaults{};
+        config_.heartbeat_ms = std::clamp(config_.heartbeat_ms, 250, 5000);
+        config_.reconnect_seconds = std::clamp(config_.reconnect_seconds, 1, 30);
+        config_.mtu = std::clamp(config_.mtu, 576, 1500);
+        config_.mouse_sensitivity = std::isfinite(config_.mouse_sensitivity)
+            ? std::clamp(config_.mouse_sensitivity, 0.05F, 5.0F) : defaults.mouse_sensitivity;
+        config_.field_of_view = std::isfinite(config_.field_of_view)
+            ? std::clamp(config_.field_of_view, 50.0F, 130.0F) : defaults.field_of_view;
+        config_.quality_index = std::clamp(config_.quality_index, 0, 3);
+        config_.jpeg_quality = std::clamp(config_.jpeg_quality, 1, 100);
+        config_.resolution_index = std::clamp(config_.resolution_index, 0, 5);
+        config_.window_mode = std::clamp(config_.window_mode, 0, 1);
+        config_.display_index = std::max(config_.display_index, 0);
+        config_.encoder_index = std::clamp(config_.encoder_index, 0, 1);
+        config_.decoder_index = std::clamp(config_.decoder_index, 0, 2);
+        config_.frame_rate = std::clamp(config_.frame_rate, 24, 240);
+        config_.bitrate_kbps = std::clamp(
+            config_.bitrate_kbps, minimum_video_bitrate_kbps, maximum_video_bitrate_kbps);
+        config_.fec_redundancy = std::isfinite(config_.fec_redundancy)
+            ? std::clamp(config_.fec_redundancy, 0.0F, 1.0F) : defaults.fec_redundancy;
+        config_.brightness = std::clamp(config_.brightness, -100, 100);
+        config_.contrast = std::clamp(config_.contrast, -100, 100);
+        config_.sharpness = std::clamp(config_.sharpness, 0, 100);
+        config_.denoise = std::clamp(config_.denoise, 0, 100);
+        config_.hud_scale = std::isfinite(config_.hud_scale)
+            ? std::clamp(config_.hud_scale, 0.75F, 1.5F) : defaults.hud_scale;
+        config_.hud_opacity = std::isfinite(config_.hud_opacity)
+            ? std::clamp(config_.hud_opacity, 0.35F, 1.0F) : defaults.hud_opacity;
+        config_.language_index = std::max(config_.language_index, 0);
+        config_.gamepad_deadzone = std::isfinite(config_.gamepad_deadzone)
+            ? std::clamp(config_.gamepad_deadzone, 0.0F, 0.5F) : defaults.gamepad_deadzone;
+        config_.recording_format = std::clamp(config_.recording_format, 0, 2);
+        config_.recording_quality = std::clamp(config_.recording_quality, 1, 100);
+        config_.split_minutes = std::clamp(config_.split_minutes, 0, 120);
+        config_.last_video_port = std::clamp(config_.last_video_port, 1, 65535);
+        if (config_.service_name.empty()) config_.service_name = defaults.service_name;
+        if (config_.last_endpoint.empty()) config_.last_endpoint = defaults.last_endpoint;
+        if (config_.recording_directory.empty()) {
+            config_.recording_directory = defaults.recording_directory;
+        }
+        if (config_.key_bindings.size() != 11 ||
+            std::any_of(config_.key_bindings.begin(), config_.key_bindings.end(), [](int key) {
+                return key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_COUNT;
+            })) {
+            config_.key_bindings.clear();
         }
     }
 
@@ -483,6 +536,7 @@ public:
                << "split_minutes=" << copy.split_minutes << '\n'
                << "service_name=" << copy.service_name << '\n'
                << "last_endpoint=" << copy.last_endpoint << '\n'
+               << "last_video_port=" << copy.last_video_port << '\n'
                << "recording_directory=" << copy.recording_directory << '\n';
         for (std::size_t index = 0; index < copy.key_bindings.size(); ++index) {
             output << "key_" << index << '=' << copy.key_bindings[index] << '\n';
@@ -563,11 +617,14 @@ public:
     }
 
     bool open_session(const DeviceInfo& device) {
-        std::optional<std::uint16_t> video_port;
+        std::optional<std::uint16_t> video_port = device.video_port == 0
+            ? std::nullopt : std::optional<std::uint16_t>{device.video_port};
         {
             std::lock_guard lock(discovery_mutex_);
             const auto iterator = discovered_video_ports_.find(device.address);
-            if (iterator != discovered_video_ports_.end()) video_port = iterator->second;
+            if (!video_port && iterator != discovered_video_ports_.end()) {
+                video_port = iterator->second;
+            }
         }
         std::string error;
         const auto endpoint = resolve_endpoint(device, video_port, error);
@@ -1777,6 +1834,7 @@ void GroundStationBackendRuntime::connect_device(const DeviceInfo& device) {
     {
         std::lock_guard lock(impl_->config_mutex_);
         impl_->config_.last_endpoint = device.address;
+        if (device.video_port != 0) impl_->config_.last_video_port = device.video_port;
     }
     impl_->save_config();
     impl_->request_connection(device);

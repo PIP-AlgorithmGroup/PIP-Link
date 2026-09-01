@@ -16,6 +16,7 @@ struct DeviceInfo final {
     std::string name;
     std::string address;
     int signal_percent{};
+    std::uint16_t video_port{};
 };
 
 struct TelemetrySnapshot final {
@@ -115,6 +116,7 @@ struct BackendPreferences final {
     int split_minutes{30};
     std::string service_name{"_pip-link._udp.local"};
     std::string last_endpoint{"192.168.1.10:6000"};
+    int last_video_port{5000};
     std::string recording_directory{"recordings"};
     std::vector<int> key_bindings;
 };

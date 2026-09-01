@@ -27,6 +27,16 @@ add_test(
             -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_remote_transport_contract.cmake
 )
 
+add_test(
+    NAME pip_link_remote_threading_contract_test
+    COMMAND ${CMAKE_COMMAND}
+            -DREMOTE_LINK_HEADER=${CMAKE_SOURCE_DIR}/src/remote_link/include/remote_link/remote_link_node.hpp
+            -DREMOTE_LINK_SOURCE=${CMAKE_SOURCE_DIR}/src/remote_link/src/remote_link_node.cpp
+            -DMDNS_HEADER=${CMAKE_SOURCE_DIR}/src/remote_link/include/remote_link/mdns_service.hpp
+            -DMDNS_SOURCE=${CMAKE_SOURCE_DIR}/src/remote_link/src/mdns_service.cpp
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_remote_threading_contract.cmake
+)
+
 if(TARGET pip_link_desktop)
     add_executable(pip_link_protocol_codec_test protocol_codec_test.cpp)
     target_link_libraries(pip_link_protocol_codec_test PRIVATE pip_link_desktop)
@@ -37,6 +47,11 @@ if(TARGET pip_link_desktop)
         PIP_LINK_TEST_IMAGE="${CMAKE_SOURCE_DIR}/assets/icon.png"
         PIP_LINK_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/backend-loopback-output")
     add_test(NAME pip_link_backend_loopback_test COMMAND pip_link_backend_loopback_test)
+    add_executable(pip_link_config_validation_test config_validation_test.cpp)
+    target_link_libraries(pip_link_config_validation_test PRIVATE pip_link_desktop)
+    target_compile_definitions(pip_link_config_validation_test PRIVATE
+        PIP_LINK_CONFIG_TEST_OUTPUT="${CMAKE_CURRENT_BINARY_DIR}/config-validation-output")
+    add_test(NAME pip_link_config_validation_test COMMAND pip_link_config_validation_test)
     add_executable(pip_link_media_pipeline_test media_pipeline_test.cpp)
     target_include_directories(pip_link_media_pipeline_test PRIVATE
         ${CMAKE_SOURCE_DIR}/ground_station/src/backend)

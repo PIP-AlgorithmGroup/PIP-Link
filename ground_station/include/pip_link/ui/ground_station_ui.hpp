@@ -9,6 +9,18 @@
 
 namespace pip_link::ui {
 
+struct GamepadSnapshot final {
+    bool connected{};
+    std::string name;
+    float left_x{};
+    float left_y{};
+    float right_x{};
+    float right_y{};
+    float right_trigger{};
+    bool south{};
+    bool left_shoulder{};
+};
+
 class GroundStationUi final {
 public:
     explicit GroundStationUi(backend::GroundStationBackend& backend);
@@ -17,6 +29,8 @@ public:
     void on_focus_lost();
     void on_mouse_capture_failed();
     void set_mouse_capture_active(bool active) noexcept;
+    void set_gamepad_snapshot(GamepadSnapshot snapshot);
+    [[nodiscard]] bool gamepad_vibration_enabled() const noexcept;
     [[nodiscard]] bool quit_requested() const noexcept;
     [[nodiscard]] bool wants_relative_mouse_mode() const noexcept;
 
@@ -37,7 +51,7 @@ private:
     void open_settings();
     void leave_ready(const char* reason);
     void toggle_ready();
-    void submit_control_input();
+    void submit_control_input(float delta_seconds);
     void submit_video_settings();
     void queue_video_settings(bool flush);
     void apply_input_settings();
@@ -83,6 +97,7 @@ private:
     int heartbeat_ms_{1000};
     int reconnect_seconds_{3};
     int mtu_{1400};
+    int manual_video_port_{5000};
     int resolution_index_{3};
     int quality_index_{2};
     int window_mode_{0};
@@ -129,7 +144,7 @@ private:
     std::array<int, 11> key_bindings_{};
     std::array<float, 7> tab_hover_{};
     std::array<float, 5> mouse_button_activity_{};
-    std::array<float, 70> key_activity_{};
+    std::array<float, 71> key_activity_{};
     std::array<float, 120> fps_history_{};
     std::array<float, 120> latency_history_{};
     backend::TelemetrySnapshot animated_telemetry_{};
@@ -140,6 +155,7 @@ private:
     std::array<char, 128> audit_filter_{};
     std::array<char, 256> console_command_{};
     std::vector<std::string> console_lines_{"PIP-Link developer console", "输入 help 查看后端命令"};
+    GamepadSnapshot gamepad_{};
     std::string feedback_{"地面端已就绪"};
     core::DebouncedAction video_settings_debounce_{0.12F};
 };

@@ -328,11 +328,17 @@ void GroundStationUi::draw_connection_page(float scale) {
 
         ImGui::TableNextColumn();
         const float connect_button_width = 130.0F * scale;
+        const float video_port_width = 105.0F * scale;
         ImGui::SetNextItemWidth(std::max(160.0F * scale,
-            ImGui::GetContentRegionAvail().x - connect_button_width -
-            ImGui::GetStyle().ItemSpacing.x));
+            ImGui::GetContentRegionAvail().x - connect_button_width - video_port_width -
+            ImGui::GetStyle().ItemSpacing.x * 2.0F));
         ImGui::InputTextWithHint("##ManualAddress", "IP:控制端口（ctrl）", manual_address_.data(),
                                  manual_address_.size());
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(video_port_width);
+        ImGui::InputInt("##ManualVideoPort", &manual_video_port_, 0, 0);
+        manual_video_port_ = std::clamp(manual_video_port_, 1, 65535);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("视频端口");
         ImGui::SameLine();
         ImGui::BeginDisabled(is_connected() || connection_busy());
         direct_connect_clicked = action_button("直接连接", connect_button_width);
@@ -353,7 +359,8 @@ void GroundStationUi::draw_connection_page(float scale) {
         if (!core::is_valid_endpoint(manual_address_.data())) {
             set_feedback("地址格式无效，请使用 IP:控制端口（ctrl）");
         } else {
-            backend_.connect_device({"手动地址", manual_address_.data(), 0});
+            backend_.connect_device({"手动地址", manual_address_.data(), 0,
+                                     static_cast<std::uint16_t>(manual_video_port_)});
             set_feedback("手动连接请求已发送，等待后端确认");
         }
     }
@@ -613,9 +620,14 @@ void GroundStationUi::draw_control_page(float scale) {
     next_column_or_row(layout, scale);
 
     begin_card("GamepadSettings", {layout.width, (layout.wide ? 570.0F : 300.0F) * scale});
-    section_title("手柄", "保留旧版手柄配置入口");
-    status_chip("未检测到手柄", text_secondary);
+    section_title("手柄", "SDL3 实时输入与振动反馈");
+    status_chip(gamepad_.connected ? gamepad_.name.c_str() : "未检测到手柄",
+                gamepad_.connected ? success : text_secondary);
     ImGui::TextColored(text_secondary, "左摇杆移动，右摇杆控制视角");
+    if (gamepad_.connected) {
+        ImGui::Text("左摇杆  X %.2f  Y %.2f", gamepad_.left_x, gamepad_.left_y);
+        ImGui::Text("右摇杆  X %.2f  Y %.2f", gamepad_.right_x, gamepad_.right_y);
+    }
     ImGui::SetNextItemWidth(300.0F * scale);
     if (ImGui::SliderFloat("摇杆死区", &gamepad_deadzone_, 0.0F, 0.5F, "%.2f")) {
         backend_.apply_gamepad_settings(gamepad_deadzone_, gamepad_vibration_);
@@ -626,7 +638,7 @@ void GroundStationUi::draw_control_page(float scale) {
         set_feedback("手柄振动设置已立即生效");
     }
     ImGui::Dummy({0.0F, 12.0F * scale});
-    ImGui::TextWrapped("A / B / X / Y、LT / RT 和摇杆数据将在真实输入后端中映射；当前页面已经暴露完整配置接口。");
+    ImGui::TextWrapped("左肩键映射冲刺，A 映射交互，RT 映射主要动作；所有输入只在 READY 时发送。");
     end_card();
 }
 

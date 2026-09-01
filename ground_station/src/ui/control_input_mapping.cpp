@@ -9,10 +9,10 @@
 namespace pip_link::ui {
 namespace {
 
-constexpr std::array<KeyVisual, 70> key_visuals{{
+constexpr std::array<KeyVisual, 71> key_visuals{{
     {ImGuiKey_Escape, 0, "ESC"}, {ImGuiKey_F1, 1, "F1"},
     {ImGuiKey_F2, 2, "F2"}, {ImGuiKey_F3, 3, "F3"},
-    {ImGuiKey_F4, 4, "F4"}, {ImGuiKey_F6, 6, "F6"},
+    {ImGuiKey_F4, 4, "F4"}, {ImGuiKey_F5, 5, "F5"}, {ImGuiKey_F6, 6, "F6"},
     {ImGuiKey_F7, 7, "F7"}, {ImGuiKey_F8, 8, "F8"},
     {ImGuiKey_F9, 9, "F9"}, {ImGuiKey_F10, 10, "F10"},
     {ImGuiKey_F11, 11, "F11"}, {ImGuiKey_F12, 12, "F12"},
