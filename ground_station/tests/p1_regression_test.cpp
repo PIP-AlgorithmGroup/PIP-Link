@@ -3,9 +3,12 @@
 #include "pip_link/ui/ground_station_ui.hpp"
 
 #include <imgui.h>
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -17,10 +20,16 @@ public:
         return state;
     }
 
+    [[nodiscard]] pip_link::backend::VideoSurface latest_video_surface() const override {
+        return {reinterpret_cast<void*>(1), 1280, 720};
+    }
+
     void set_ready(bool ready) override {
         last_ready = ready;
         ++ready_requests;
     }
+
+    void disconnect_device() override { ++disconnect_requests; }
 
     void submit_control_input(const pip_link::backend::ControlInput& input) override {
         last_input = input;
@@ -31,6 +40,7 @@ public:
     pip_link::backend::ControlInput last_input{};
     bool last_ready{false};
     int ready_requests{0};
+    int disconnect_requests{0};
     int control_packets{0};
 };
 
@@ -55,11 +65,49 @@ bool bit_is_set(const pip_link::backend::ControlInput& input, int bit) {
             static_cast<std::uint8_t>(1U << (bit % 8))) != 0;
 }
 
+bool video_is_fitted_without_cropping() {
+    const ImTextureID video_texture = static_cast<ImTextureID>(1);
+    const ImDrawData* draw_data = ImGui::GetDrawData();
+    for (int list_index = 0; list_index < draw_data->CmdListsCount; ++list_index) {
+        const ImDrawList* list = draw_data->CmdLists[list_index];
+        for (const ImDrawCmd& command : list->CmdBuffer) {
+            if (command.GetTexID() != video_texture) continue;
+            ImVec2 min_position{std::numeric_limits<float>::max(),
+                                std::numeric_limits<float>::max()};
+            ImVec2 max_position{std::numeric_limits<float>::lowest(),
+                                std::numeric_limits<float>::lowest()};
+            ImVec2 min_uv{1.0F, 1.0F};
+            ImVec2 max_uv{0.0F, 0.0F};
+            for (unsigned int index = 0; index < command.ElemCount; ++index) {
+                const ImDrawIdx vertex_index =
+                    list->IdxBuffer[command.IdxOffset + index];
+                const ImDrawVert& vertex =
+                    list->VtxBuffer[command.VtxOffset + vertex_index];
+                min_position.x = std::min(min_position.x, vertex.pos.x);
+                min_position.y = std::min(min_position.y, vertex.pos.y);
+                max_position.x = std::max(max_position.x, vertex.pos.x);
+                max_position.y = std::max(max_position.y, vertex.pos.y);
+                min_uv.x = std::min(min_uv.x, vertex.uv.x);
+                min_uv.y = std::min(min_uv.y, vertex.uv.y);
+                max_uv.x = std::max(max_uv.x, vertex.uv.x);
+                max_uv.y = std::max(max_uv.y, vertex.uv.y);
+            }
+            const float width = max_position.x - min_position.x;
+            const float height = max_position.y - min_position.y;
+            return std::abs(width / height - 16.0F / 9.0F) < 0.01F &&
+                   min_uv.x == 0.0F && min_uv.y == 0.0F &&
+                   max_uv.x == 1.0F && max_uv.y == 1.0F;
+        }
+    }
+    return false;
+}
+
 }  // namespace
 
 int main() {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
+    io.IniFilename = nullptr;
     io.DisplaySize = {1440.0F, 900.0F};
     unsigned char* pixels = nullptr;
     int width = 0;
@@ -68,7 +116,12 @@ int main() {
 
     TestBackend backend;
     pip_link::ui::GroundStationUi ui{backend};
+    io.DisplaySize = {900.0F, 900.0F};
     draw_frame(ui);
+    if (!video_is_fitted_without_cropping()) {
+        std::cerr << "Video was cropped instead of fitted during window resize.\n";
+        return 1;
+    }
 
     press_key(ui, ImGuiKey_F6);
     if (backend.ready_requests != 0) {
@@ -97,6 +150,13 @@ int main() {
         return 1;
     }
 
+    ui.on_focus_lost();
+    if (backend.ready_requests != 2 || backend.last_ready ||
+        backend.disconnect_requests != 0) {
+        std::cerr << "Focus loss should neutralize control without disconnecting video.\n";
+        return 1;
+    }
+
     backend.state.connection = pip_link::backend::ConnectionState::disconnected;
     draw_frame(ui);
     if (backend.ready_requests != 2 || backend.last_ready ||
@@ -120,6 +180,18 @@ int main() {
     pip_link::ui::map_physical_key(old_binding, ImGuiKey_W, bindings);
     if (bit_is_set(old_binding, 29)) {
         std::cerr << "Old forward key remained active after rebinding.\n";
+        return 1;
+    }
+
+    draw_frame(ui);
+    io.AddKeyEvent(ImGuiKey_Tab, true);
+    draw_frame(ui);
+    const int transition_vertices = ImGui::GetDrawData()->TotalVtxCount;
+    io.AddKeyEvent(ImGuiKey_Tab, false);
+    for (int frame = 0; frame < 90; ++frame) draw_frame(ui);
+    const int hidden_vertices = ImGui::GetDrawData()->TotalVtxCount;
+    if (transition_vertices <= hidden_vertices) {
+        std::cerr << "Input HUD disappeared without a hide transition.\n";
         return 1;
     }
 

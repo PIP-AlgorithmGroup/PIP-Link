@@ -59,6 +59,20 @@ ImU32 color_with_alpha(const ImVec4& color, float alpha) {
     return ImGui::GetColorU32(adjusted);
 }
 
+float animate_toward(float current, float target, float delta_seconds, float tau) {
+    const float step = 1.0F - std::exp(-std::clamp(delta_seconds, 0.0F, 0.1F) / tau);
+    const float value = current + (target - current) * step;
+    return std::abs(target - value) < 0.001F ? target : value;
+}
+
+ImVec4 blend_color(const ImVec4& from, const ImVec4& to, float amount) {
+    const float t = std::clamp(amount, 0.0F, 1.0F);
+    return {from.x + (to.x - from.x) * t,
+            from.y + (to.y - from.y) * t,
+            from.z + (to.z - from.z) * t,
+            from.w + (to.w - from.w) * t};
+}
+
 void draw_key_tag(ImDrawList* draw, ImVec2& cursor, const ImVec2 bounds,
                   const char* label, float scale, float font_size, float opacity) {
     const ImVec2 text_size = ImGui::GetFont()->CalcTextSizeA(
@@ -122,6 +136,11 @@ GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backe
     show_input_hud_ = settings.show_input;
     show_status_hud_ = settings.show_statistics;
     show_ready_hud_ = settings.show_ready;
+    animated_hud_scale_ = hud_scale_;
+    animated_hud_opacity_ = hud_opacity_;
+    input_hud_visibility_ = show_input_hud_ ? 1.0F : 0.0F;
+    status_hud_visibility_ = show_status_hud_ ? 1.0F : 0.0F;
+    ready_hud_visibility_ = show_ready_hud_ ? 1.0F : 0.0F;
     language_index_ = settings.language_index;
     show_performance_graph_ = settings.show_performance_graph;
     show_debug_info_ = settings.show_debug_info;
@@ -278,6 +297,58 @@ void GroundStationUi::draw(float delta_seconds, float display_scale) {
     }
 
     const auto telemetry = backend_.telemetry();
+    if (!hud_animation_initialized_) {
+        animated_telemetry_ = telemetry;
+        ready_transition_ = ready_ ? 1.0F : 0.0F;
+        hud_animation_initialized_ = true;
+    } else {
+        constexpr float visibility_tau = 0.10F;
+        input_hud_visibility_ = animate_toward(
+            input_hud_visibility_, show_input_hud_ ? 1.0F : 0.0F,
+            delta_seconds, visibility_tau);
+        status_hud_visibility_ = animate_toward(
+            status_hud_visibility_, show_status_hud_ ? 1.0F : 0.0F,
+            delta_seconds, visibility_tau);
+        ready_hud_visibility_ = animate_toward(
+            ready_hud_visibility_, show_ready_hud_ ? 1.0F : 0.0F,
+            delta_seconds, visibility_tau);
+        animated_hud_scale_ = animate_toward(
+            animated_hud_scale_, hud_scale_, delta_seconds, 0.12F);
+        animated_hud_opacity_ = animate_toward(
+            animated_hud_opacity_, hud_opacity_, delta_seconds, 0.12F);
+        ready_transition_ = animate_toward(
+            ready_transition_, ready_ ? 1.0F : 0.0F, delta_seconds, 0.09F);
+        animated_telemetry_.fps = animate_toward(
+            animated_telemetry_.fps, telemetry.fps, delta_seconds, 0.14F);
+        animated_telemetry_.latency_ms = animate_toward(
+            animated_telemetry_.latency_ms, telemetry.latency_ms, delta_seconds, 0.18F);
+        animated_telemetry_.packet_loss_percent = animate_toward(
+            animated_telemetry_.packet_loss_percent, telemetry.packet_loss_percent,
+            delta_seconds, 0.18F);
+        animated_telemetry_.bandwidth_mbps = animate_toward(
+            animated_telemetry_.bandwidth_mbps, telemetry.bandwidth_mbps,
+            delta_seconds, 0.18F);
+        animated_telemetry_.decoded_frames = telemetry.decoded_frames;
+    }
+    const std::array<bool, 5> mouse_down{
+        ImGui::IsMouseDown(ImGuiMouseButton_Left),
+        ImGui::IsMouseDown(ImGuiMouseButton_Middle),
+        ImGui::IsMouseDown(ImGuiMouseButton_Right),
+        ImGui::IsMouseDown(3), ImGui::IsMouseDown(4),
+    };
+    for (std::size_t index = 0; index < mouse_button_activity_.size(); ++index) {
+        mouse_button_activity_[index] = animate_toward(
+            mouse_button_activity_[index], mouse_down[index] ? 1.0F : 0.0F,
+            delta_seconds, mouse_down[index] ? 0.035F : 0.10F);
+    }
+    const auto key_visuals = protocol_key_visuals();
+    for (std::size_t index = 0; index < key_activity_.size(); ++index) {
+        const bool pressed = ImGui::IsKeyDown(
+            static_cast<ImGuiKey>(key_visuals[index].imgui_key));
+        key_activity_[index] = animate_toward(
+            key_activity_[index], pressed ? 1.0F : 0.0F,
+            delta_seconds, pressed ? 0.035F : 0.10F);
+    }
     std::rotate(fps_history_.begin(), fps_history_.begin() + 1, fps_history_.end());
     std::rotate(latency_history_.begin(), latency_history_.begin() + 1, latency_history_.end());
     fps_history_.back() = telemetry.fps;
@@ -412,28 +483,28 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         const float canvas_aspect = size.x / size.y;
         const float video_aspect = static_cast<float>(video.width) /
                                    static_cast<float>(video.height);
-        ImVec2 uv0{0.0F, 0.0F};
-        ImVec2 uv1{1.0F, 1.0F};
+        ImVec2 video_size = size;
         if (video_aspect > canvas_aspect) {
-            const float visible = canvas_aspect / video_aspect;
-            uv0.x = (1.0F - visible) * 0.5F;
-            uv1.x = 1.0F - uv0.x;
+            video_size.y = size.x / video_aspect;
         } else {
-            const float visible = video_aspect / canvas_aspect;
-            uv0.y = (1.0F - visible) * 0.5F;
-            uv1.y = 1.0F - uv0.y;
+            video_size.x = size.y * video_aspect;
         }
+        const ImVec2 video_min{origin.x + (size.x - video_size.x) * 0.5F,
+                               origin.y + (size.y - video_size.y) * 0.5F};
+        const ImVec2 video_max{video_min.x + video_size.x,
+                               video_min.y + video_size.y};
         const auto texture_id = static_cast<ImTextureID>(
             reinterpret_cast<std::uintptr_t>(video.native_texture));
-        draw->AddImage(texture_id, origin, {origin.x + size.x, origin.y + size.y}, uv0, uv1);
+        draw->AddImage(texture_id, video_min, video_max);
     }
 
-    const float unit = scale * hud_scale_;
-    const float hud_font_size = ImGui::GetFontSize() * hud_scale_;
-    const float opacity = hud_opacity_;
+    const float unit = scale * animated_hud_scale_;
+    const float hud_font_size = ImGui::GetFontSize() * animated_hud_scale_;
+    const float hud_opacity = animated_hud_opacity_;
     const float margin = 20.0F * unit;
 
-    if (show_input_hud_) {
+    if (input_hud_visibility_ > 0.001F) {
+        const float opacity = hud_opacity * input_hud_visibility_;
         ImGuiIO& io = ImGui::GetIO();
         const float target_x = std::clamp(io.MouseDelta.x * 2.3F, -30.0F, 30.0F);
         const float target_y = std::clamp(io.MouseDelta.y * 2.3F, -30.0F, 30.0F);
@@ -443,7 +514,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
 
         const float panel_w = 390.0F * unit;
         const float panel_h = 202.0F * unit;
-        const ImVec2 p0{origin.x + margin, origin.y + size.y - margin - panel_h};
+        const float slide = (1.0F - input_hud_visibility_) * 14.0F * unit;
+        const ImVec2 p0{origin.x + margin, origin.y + size.y - margin - panel_h + slide};
         const ImVec2 p1{p0.x + panel_w, p0.y + panel_h};
         draw->AddRectFilled(p0, p1, IM_COL32(7, 12, 18, static_cast<int>(175.0F * opacity)),
                             10.0F * unit);
@@ -468,20 +540,15 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         draw->AddCircleFilled(dot, 5.5F * unit, color_with_alpha(accent, opacity));
 
         constexpr std::array<const char*, 5> mouse_labels{"L", "M", "R", "M4", "M5"};
-        const std::array<bool, 5> mouse_down{
-            ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::IsMouseDown(ImGuiMouseButton_Middle),
-            ImGui::IsMouseDown(ImGuiMouseButton_Right), ImGui::IsMouseDown(3),
-            ImGui::IsMouseDown(4),
-        };
         float mouse_chip_x = p0.x + 122.0F * unit;
         for (std::size_t index = 0; index < mouse_labels.size(); ++index) {
             const float chip_w = (index < 3 ? 31.0F : 38.0F) * unit;
             const ImVec2 c0{mouse_chip_x, p0.y + 29.0F * unit};
             const ImVec2 c1{c0.x + chip_w, c0.y + 27.0F * unit};
-            draw->AddRectFilled(c0, c1,
-                                mouse_down[index]
-                                    ? color_with_alpha(accent, opacity)
-                                    : IM_COL32(43, 54, 65, static_cast<int>(185.0F * opacity)),
+            const ImVec4 chip_color = blend_color(
+                {43.0F / 255.0F, 54.0F / 255.0F, 65.0F / 255.0F, 185.0F / 255.0F},
+                accent, mouse_button_activity_[index]);
+            draw->AddRectFilled(c0, c1, color_with_alpha(chip_color, opacity),
                                 5.0F * unit);
             const ImVec2 label_size = ImGui::GetFont()->CalcTextSizeA(
                 hud_font_size, 10000.0F, 0.0F, mouse_labels[index]);
@@ -507,12 +574,12 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         int pressed_count = 0;
         draw->PushClipRect({p0.x + 12.0F * unit, p0.y + 126.0F * unit},
                            {p1.x - 12.0F * unit, p1.y - 10.0F * unit}, true);
-        for (const auto& visual : protocol_key_visuals()) {
-            if (ImGui::IsKeyDown(static_cast<ImGuiKey>(visual.imgui_key))) {
-                draw_key_tag(draw, tag_cursor, tag_bounds, visual.label, unit,
-                             hud_font_size, opacity);
-                ++pressed_count;
-            }
+        const auto key_visuals = protocol_key_visuals();
+        for (std::size_t index = 0; index < key_visuals.size(); ++index) {
+            if (key_activity_[index] <= 0.01F) continue;
+            draw_key_tag(draw, tag_cursor, tag_bounds, key_visuals[index].label, unit,
+                         hud_font_size, opacity * key_activity_[index]);
+            ++pressed_count;
         }
         if (pressed_count == 0) {
             draw->AddText(ImGui::GetFont(), hud_font_size, tag_cursor,
@@ -522,8 +589,9 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         draw->PopClipRect();
     }
 
-    const auto telemetry = backend_.telemetry();
-    if (show_status_hud_) {
+    const auto& telemetry = animated_telemetry_;
+    if (status_hud_visibility_ > 0.001F) {
+        const float opacity = hud_opacity * status_hud_visibility_;
         constexpr std::array<const char*, 4> labels{"FPS", "BITRATE", "RTT", "LOSS"};
         char values[4][32]{};
         std::snprintf(values[0], sizeof(values[0]), "%.1f", telemetry.fps);
@@ -532,7 +600,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         std::snprintf(values[3], sizeof(values[3]), "%.2f %%", telemetry.packet_loss_percent);
         const float panel_w = 250.0F * unit;
         const float panel_h = 124.0F * unit;
-        const ImVec2 p1{origin.x + size.x - margin, origin.y + size.y - margin};
+        const float slide = (1.0F - status_hud_visibility_) * 14.0F * unit;
+        const ImVec2 p1{origin.x + size.x - margin + slide, origin.y + size.y - margin};
         const ImVec2 p0{p1.x - panel_w, p1.y - panel_h};
         draw->AddRectFilled(p0, p1, IM_COL32(7, 12, 18, static_cast<int>(165.0F * opacity)),
                             9.0F * unit);
@@ -554,7 +623,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         }
     }
 
-    if (show_ready_hud_) {
+    if (ready_hud_visibility_ > 0.001F) {
+        const float opacity = hud_opacity * ready_hud_visibility_;
         char ready_text[64]{};
         std::snprintf(ready_text, sizeof(ready_text), ready_ ? "READY" : "NOT READY  [%s]",
                       ImGui::GetKeyName(
@@ -563,15 +633,21 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
             hud_font_size, 10000.0F, 0.0F, ready_text);
         const float pill_w = ready_size.x + 42.0F * unit;
         const float pill_h = 34.0F * unit;
-        const ImVec2 center{origin.x + size.x * 0.5F, origin.y + size.y - margin};
+        const float slide = (1.0F - ready_hud_visibility_) * 12.0F * unit;
+        const ImVec2 center{origin.x + size.x * 0.5F,
+                            origin.y + size.y - margin + slide};
         const ImVec2 p0{center.x - pill_w * 0.5F, center.y - pill_h};
         const ImVec2 p1{center.x + pill_w * 0.5F, center.y};
-        draw->AddRectFilled(p0, p1,
-                            ready_ ? IM_COL32(11, 88, 56, static_cast<int>(205.0F * opacity))
-                                   : IM_COL32(83, 25, 23, static_cast<int>(205.0F * opacity)),
+        const ImVec4 background = blend_color(
+            {83.0F / 255.0F, 25.0F / 255.0F, 23.0F / 255.0F, 205.0F / 255.0F},
+            {11.0F / 255.0F, 88.0F / 255.0F, 56.0F / 255.0F, 205.0F / 255.0F},
+            ready_transition_);
+        draw->AddRectFilled(p0, p1, color_with_alpha(background, opacity),
                             pill_h * 0.5F);
         draw->AddCircleFilled({p0.x + 17.0F * unit, center.y - pill_h * 0.5F},
-                              4.0F * unit, color_with_alpha(ready_ ? success : danger, opacity));
+                              4.0F * unit,
+                              color_with_alpha(blend_color(danger, success,
+                                                           ready_transition_), opacity));
         draw->AddText(ImGui::GetFont(), hud_font_size,
                       {p0.x + 29.0F * unit, p0.y + (pill_h - ready_size.y) * 0.5F},
                       IM_COL32(247, 250, 252, static_cast<int>(255.0F * opacity)), ready_text);

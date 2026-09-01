@@ -120,6 +120,7 @@ int main() {
     }
     std::atomic_bool running{true};
     std::atomic_bool saw_enabled_control{false};
+    std::atomic_bool saw_video_settings{false};
     std::atomic_bool sent_video{false};
     std::atomic_bool allow_video{false};
     std::mutex video_client_mutex;
@@ -144,6 +145,15 @@ int main() {
             if (buffer[3] == 0x01 && count == 37 && buffer[17] == 1 &&
                 buffer[27] == 12 && buffer[29] == 0xF9 && buffer[30] == 0xFF) {
                 saw_enabled_control = true;
+            }
+            if (buffer[3] == 0x02 && count > 21) {
+                const std::string json(
+                    reinterpret_cast<const char*>(buffer.data() + 17),
+                    static_cast<std::size_t>(count - 21));
+                if (json.find("\"target_fps\":60") != std::string::npos &&
+                    json.find("\"bitrate\":12000") != std::string::npos) {
+                    saw_video_settings = true;
+                }
             }
             sockaddr_in video_client{};
             int video_client_length = sizeof(video_client);
@@ -201,6 +211,11 @@ int main() {
             closesocket(server);
             WSACleanup();
             return 1;
+        }
+        if (!wait_for([&] { return saw_video_settings.load(); },
+                      std::chrono::seconds(1))) {
+            std::cerr << "video frame-rate and bitrate settings were not transmitted\n";
+            failed = true;
         }
         backend.start_recording(output_directory.string(), 2, 85, 0);
         if (backend.runtime_state().recording !=

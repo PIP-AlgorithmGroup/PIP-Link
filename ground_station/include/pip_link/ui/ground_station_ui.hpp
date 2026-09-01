@@ -109,6 +109,12 @@ private:
     float gamepad_deadzone_{0.15F};
     float hud_scale_{1.0F};
     float hud_opacity_{0.86F};
+    float animated_hud_scale_{1.0F};
+    float animated_hud_opacity_{0.86F};
+    float input_hud_visibility_{1.0F};
+    float status_hud_visibility_{1.0F};
+    float ready_hud_visibility_{1.0F};
+    float ready_transition_{0.0F};
     float mouse_indicator_x_{0.0F};
     float mouse_indicator_y_{0.0F};
     float console_height_{0.0F};
@@ -121,8 +127,12 @@ private:
     double display_confirmation_deadline_{0.0};
     std::array<int, 11> key_bindings_{};
     std::array<float, 7> tab_hover_{};
+    std::array<float, 5> mouse_button_activity_{};
+    std::array<float, 70> key_activity_{};
     std::array<float, 120> fps_history_{};
     std::array<float, 120> latency_history_{};
+    backend::TelemetrySnapshot animated_telemetry_{};
+    bool hud_animation_initialized_{false};
     std::array<char, 128> service_name_{"_pip-link._udp.local"};
     std::array<char, 128> manual_address_{"192.168.1.10:6000"};
     std::array<char, 260> recording_directory_{"recordings"};

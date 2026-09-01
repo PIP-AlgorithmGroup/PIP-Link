@@ -894,15 +894,18 @@ void GroundStationUi::draw_interface_page(float scale) {
     const ImVec2 p1{p0.x + ImGui::GetContentRegionAvail().x, p0.y + 190.0F * scale};
     ImDrawList* draw = ImGui::GetWindowDrawList();
     draw->AddRectFilled(p0, p1, IM_COL32(18, 28, 38, 255), 8.0F * scale);
-    const float preview_unit = scale * hud_scale_;
-    const float preview_font_size = ImGui::GetFontSize() * hud_scale_;
-    const int preview_alpha = static_cast<int>(255.0F * hud_opacity_);
-    if (show_input_hud_) {
+    const float preview_unit = scale * animated_hud_scale_;
+    const float preview_font_size = ImGui::GetFontSize() * animated_hud_scale_;
+    if (input_hud_visibility_ > 0.001F) {
+        const int preview_alpha = static_cast<int>(
+            255.0F * animated_hud_opacity_ * input_hud_visibility_);
         draw->AddText(ImGui::GetFont(), preview_font_size,
                       {p0.x + 16.0F * preview_unit, p0.y + 16.0F * preview_unit},
                       IM_COL32(241, 247, 250, preview_alpha), "W  SHIFT  MOUSE-L");
     }
-    if (show_status_hud_) {
+    if (status_hud_visibility_ > 0.001F) {
+        const int preview_alpha = static_cast<int>(
+            255.0F * animated_hud_opacity_ * status_hud_visibility_);
         constexpr std::array<const char*, 4> preview_labels{"FPS", "BITRATE", "RTT", "LOSS"};
         constexpr std::array<const char*, 4> preview_values{
             "60.0", "12.4 Mbps", "18 ms", "0.2 %"};
@@ -922,7 +925,9 @@ void GroundStationUi::draw_interface_page(float scale) {
                           preview_values[static_cast<std::size_t>(index)]);
         }
     }
-    if (show_ready_hud_) {
+    if (ready_hud_visibility_ > 0.001F) {
+        const int preview_alpha = static_cast<int>(
+            255.0F * animated_hud_opacity_ * ready_hud_visibility_);
         const char* ready = "NOT READY";
         const ImVec2 ready_size = ImGui::GetFont()->CalcTextSizeA(
             preview_font_size, 10000.0F, 0.0F, ready);
