@@ -62,6 +62,27 @@ if(PIP_LINK_BUILD_GUI)
     )
     FetchContent_MakeAvailable(imgui)
 
+    # ImGui 1.91.9b uses a 0.8s visible / 0.4s hidden text-cursor cycle.
+    set(imgui_widgets_file "${imgui_SOURCE_DIR}/imgui_widgets.cpp")
+    file(READ "${imgui_widgets_file}" imgui_widgets_source)
+    set(imgui_cursor_blink_default
+        "ImFmod(state->CursorAnim, 1.20f) <= 0.80f")
+    set(imgui_cursor_blink_equal
+        "ImFmod(state->CursorAnim, 1.00f) <= 0.50f")
+    string(FIND "${imgui_widgets_source}" "${imgui_cursor_blink_default}"
+           imgui_cursor_blink_default_index)
+    if(NOT imgui_cursor_blink_default_index EQUAL -1)
+        string(REPLACE "${imgui_cursor_blink_default}" "${imgui_cursor_blink_equal}"
+               imgui_widgets_source "${imgui_widgets_source}")
+        file(WRITE "${imgui_widgets_file}" "${imgui_widgets_source}")
+    else()
+        string(FIND "${imgui_widgets_source}" "${imgui_cursor_blink_equal}"
+               imgui_cursor_blink_equal_index)
+        if(imgui_cursor_blink_equal_index EQUAL -1)
+            message(FATAL_ERROR "Unsupported ImGui text-cursor blink implementation")
+        endif()
+    endif()
+
     add_library(pip_link_imgui STATIC
         ${imgui_SOURCE_DIR}/imgui.cpp
         ${imgui_SOURCE_DIR}/imgui_demo.cpp
