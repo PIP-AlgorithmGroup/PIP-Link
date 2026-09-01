@@ -2,6 +2,8 @@
 
 #include "pip_link/backend/ground_station_backend.hpp"
 #include "pip_link/core/debounced_action.hpp"
+#include "pip_link/core/log_tail.hpp"
+#include "pip_link/core/periodic_sampler.hpp"
 
 #include <array>
 #include <string>
@@ -136,9 +138,7 @@ private:
     float console_height_{0.0F};
     std::array<float, 7> settings_scroll_targets_{};
     float tab_scroll_target_{0.0F};
-    float console_scroll_target_{0.0F};
     float device_scroll_target_{0.0F};
-    float audit_scroll_target_{0.0F};
     double recording_started_at_{0.0};
     double scanning_started_at_{0.0};
     double display_confirmation_deadline_{0.0};
@@ -159,6 +159,9 @@ private:
     GamepadSnapshot gamepad_{};
     std::string feedback_{"地面端已就绪"};
     core::DebouncedAction video_settings_debounce_{0.12F};
+    core::PeriodicSampler diagnostics_sampler_{0.1F};
+    core::LogTail console_log_tail_{};
+    core::LogTail audit_log_tail_{};
 };
 
 }  // namespace pip_link::ui

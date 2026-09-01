@@ -409,10 +409,13 @@ void GroundStationUi::draw(float delta_seconds, float display_scale) {
             key_activity_[index], pressed ? 1.0F : 0.0F,
             delta_seconds, pressed ? 0.035F : 0.10F);
     }
-    std::rotate(fps_history_.begin(), fps_history_.begin() + 1, fps_history_.end());
-    std::rotate(latency_history_.begin(), latency_history_.begin() + 1, latency_history_.end());
-    fps_history_.back() = telemetry.fps;
-    latency_history_.back() = telemetry.latency_ms;
+    if (diagnostics_sampler_.tick(delta_seconds)) {
+        std::rotate(fps_history_.begin(), fps_history_.begin() + 1, fps_history_.end());
+        std::rotate(latency_history_.begin(), latency_history_.begin() + 1,
+                    latency_history_.end());
+        fps_history_.back() = telemetry.fps;
+        latency_history_.back() = telemetry.latency_ms;
+    }
 
     submit_control_input(delta_seconds);
     if (settings_open_) draw_settings(delta_seconds, display_scale);
@@ -923,12 +926,16 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
     ImGui::BeginChild("##ConsoleOutput", {0.0F, -38.0F * scale}, ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     for (const auto& line : console_lines_) ImGui::TextUnformatted(line.c_str());
+    const float console_scroll_max = ImGui::GetScrollMaxY();
+    console_log_tail_.sync(console_lines_.size(), console_scroll_max);
     if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel != 0.0F) {
-        console_scroll_target_ -= ImGui::GetIO().MouseWheel * 100.0F * scale;
+        console_log_tail_.on_wheel(ImGui::GetIO().MouseWheel, console_scroll_max);
+        console_log_tail_.set_target(
+            console_log_tail_.target() - ImGui::GetIO().MouseWheel * 100.0F * scale,
+            console_scroll_max);
     }
-    console_scroll_target_ = std::clamp(console_scroll_target_, 0.0F, ImGui::GetScrollMaxY());
     ImGui::SetScrollY(core::advance_smooth_scroll(
-        ImGui::GetScrollY(), console_scroll_target_, delta_seconds, scale));
+        ImGui::GetScrollY(), console_log_tail_.target(), delta_seconds, scale));
     ImGui::EndChild();
     ImGui::SetNextItemWidth(-1.0F);
     if (ImGui::InputText("##ConsoleCommand", console_command_.data(), console_command_.size(),

@@ -1023,16 +1023,19 @@ void GroundStationUi::draw_audit_page(float scale) {
         ImGui::EndTable();
     }
     const float audit_scroll_max = ImGui::GetScrollMaxY();
+    audit_log_tail_.sync(entries.size(), audit_scroll_max);
     const float audit_wheel = ImGui::GetIO().MouseWheel;
     if (ImGui::IsWindowHovered() && audit_wheel != 0.0F &&
-        ((audit_wheel > 0.0F && audit_scroll_target_ > 0.0F) ||
-         (audit_wheel < 0.0F && audit_scroll_target_ < audit_scroll_max))) {
-        audit_scroll_target_ -= audit_wheel * 100.0F * scale;
+        ((audit_wheel > 0.0F && audit_log_tail_.target() > 0.0F) ||
+         (audit_wheel < 0.0F && audit_log_tail_.target() < audit_scroll_max))) {
+        audit_log_tail_.on_wheel(audit_wheel, audit_scroll_max);
+        audit_log_tail_.set_target(
+            audit_log_tail_.target() - audit_wheel * 100.0F * scale,
+            audit_scroll_max);
         nested_scroll_consumed_ = true;
     }
-    audit_scroll_target_ = std::clamp(audit_scroll_target_, 0.0F, audit_scroll_max);
     ImGui::SetScrollY(core::advance_smooth_scroll(
-        ImGui::GetScrollY(), audit_scroll_target_, ImGui::GetIO().DeltaTime, scale));
+        ImGui::GetScrollY(), audit_log_tail_.target(), ImGui::GetIO().DeltaTime, scale));
     ImGui::EndChild();
     ImGui::PopStyleColor();
     end_card();
