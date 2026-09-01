@@ -236,7 +236,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0F, 0.0F});
     constexpr ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::Begin("PIP-Link##FPV", nullptr, flags);
 
     const ImVec2 origin = ImGui::GetWindowPos();
@@ -525,7 +526,8 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {30.0F * scale, 22.0F * scale});
     constexpr ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus;
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::Begin("PIP-Link##Settings", nullptr, flags);
 
     const float window_width = ImGui::GetWindowWidth();
@@ -592,8 +594,9 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
     char content_id[32]{};
     std::snprintf(content_id, sizeof(content_id), "##SettingsContent%d", active_settings_tab_);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.93F, 0.95F, 0.97F, 0.0F});
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0F * scale, 4.0F * scale});
     ImGui::BeginChild(content_id, {0.0F, -40.0F * scale},
-                      ImGuiChildFlags_None,
+                      ImGuiChildFlags_AlwaysUseWindowPadding,
                       ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar);
     nested_scroll_consumed_ = false;
     switch (active_settings_tab_) {
@@ -623,6 +626,7 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
         ImGui::SetScrollY(scroll_target);
     }
     ImGui::EndChild();
+    ImGui::PopStyleVar();
     ImGui::PopStyleColor();
 
     if (ImGui::BeginTable("SettingsFooter", 2, ImGuiTableFlags_SizingFixedFit)) {
@@ -642,9 +646,10 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
 }
 
 void GroundStationUi::draw_settings_tabs(float delta_seconds, float scale) {
-    ImGui::BeginChild("##SettingsTabs", {0.0F, 48.0F * scale}, ImGuiChildFlags_None,
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {4.0F * scale, 3.0F * scale});
+    ImGui::BeginChild("##SettingsTabs", {0.0F, 48.0F * scale},
+                      ImGuiChildFlags_AlwaysUseWindowPadding,
                       ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollbar);
-    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.0F * scale);
     for (int index = 0; index < static_cast<int>(tabs.size()); ++index) {
         if (index > 0) ImGui::SameLine(0.0F, 8.0F * scale);
         const ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -695,6 +700,7 @@ void GroundStationUi::draw_settings_tabs(float delta_seconds, float scale) {
                                 difference * (1.0F - std::exp(-delta_seconds / 0.08F))
                           : tab_scroll_target_);
     ImGui::EndChild();
+    ImGui::PopStyleVar();
 }
 
 void GroundStationUi::draw_console(float delta_seconds, float scale) {
