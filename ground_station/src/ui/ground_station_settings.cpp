@@ -793,8 +793,8 @@ void GroundStationUi::draw_recording_page(float scale) {
                          recording_state_ != backend::RecordingState::failed);
     ImGui::TextColored(text_secondary, "保存目录");
     ImGui::SetNextItemWidth(-1.0F);
-    ImGui::InputTextWithHint("##RecordingDirectory", "例如 recordings", recording_directory_.data(),
-                             recording_directory_.size());
+    ImGui::InputTextWithHint("##RecordingDirectory", "相对路径位于 Windows 视频目录",
+                             recording_directory_.data(), recording_directory_.size());
     ImGui::SetNextItemWidth(300.0F * scale);
     animated_combo("封装格式", &recording_format_, formats,
                    static_cast<int>(std::size(formats)));
@@ -829,9 +829,10 @@ void GroundStationUi::draw_recording_page(float scale) {
             if (!core::is_valid_directory(recording_directory_.data())) {
                 set_feedback("保存目录不能为空");
             } else {
-                backend_.start_recording(recording_directory_.data(), recording_format_,
-                                         recording_quality_, split_minutes_);
-                set_feedback("录像启动请求已发送，等待后端确认");
+                const backend::MediaActionResult result = backend_.start_recording(
+                    recording_directory_.data(), recording_format_, recording_quality_,
+                    split_minutes_);
+                set_feedback(result.message);
             }
         }
     } else if (is_recording()) {
@@ -848,16 +849,18 @@ void GroundStationUi::draw_recording_page(float scale) {
         if (!core::is_valid_directory(recording_directory_.data())) {
             set_feedback("保存目录不能为空");
         } else {
-            backend_.take_screenshot(recording_directory_.data());
-            set_feedback("截图请求已发送");
+            const backend::MediaActionResult result =
+                backend_.take_screenshot(recording_directory_.data());
+            set_feedback(result.message);
         }
     }
     if (secondary_button("打开保存目录", 160.0F * scale)) {
         if (!core::is_valid_directory(recording_directory_.data())) {
             set_feedback("保存目录不能为空");
         } else {
-            backend_.open_recordings_folder(recording_directory_.data());
-            set_feedback("打开录像目录请求已发送");
+            const backend::MediaActionResult result =
+                backend_.open_recordings_folder(recording_directory_.data());
+            set_feedback(result.message);
         }
     }
     end_card();

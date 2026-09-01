@@ -52,13 +52,20 @@ void GroundStationBackendStub::apply_diagnostics_settings(bool, bool, bool) {}
 
 void GroundStationBackendStub::set_ready(bool) {}
 
-void GroundStationBackendStub::start_recording(const std::string&, int, int, int) {}
+MediaActionResult GroundStationBackendStub::start_recording(
+    const std::string&, int, int, int) {
+    return {true, "录像已开始"};
+}
 
 void GroundStationBackendStub::stop_recording() {}
 
-void GroundStationBackendStub::take_screenshot(const std::string&) {}
+MediaActionResult GroundStationBackendStub::take_screenshot(const std::string&) {
+    return {true, "截图已保存"};
+}
 
-void GroundStationBackendStub::open_recordings_folder(const std::string&) {}
+MediaActionResult GroundStationBackendStub::open_recordings_folder(const std::string&) {
+    return {true, "保存目录已打开"};
+}
 
 void GroundStationBackendStub::save_key_bindings(const std::vector<int>&) {}
 

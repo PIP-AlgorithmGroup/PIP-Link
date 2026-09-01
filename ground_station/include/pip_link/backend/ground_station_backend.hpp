@@ -121,6 +121,11 @@ struct BackendPreferences final {
     std::vector<int> key_bindings;
 };
 
+struct MediaActionResult final {
+    bool succeeded{};
+    std::string message;
+};
+
 class GroundStationBackend {
 public:
     virtual ~GroundStationBackend() = default;
@@ -159,11 +164,14 @@ public:
                                             bool show_debug_info,
                                             bool verbose_log) = 0;
     virtual void set_ready(bool ready) = 0;
-    virtual void start_recording(const std::string& directory, int format_index,
-                                 int quality, int split_minutes) = 0;
+    [[nodiscard]] virtual MediaActionResult start_recording(
+        const std::string& directory, int format_index, int quality,
+        int split_minutes) = 0;
     virtual void stop_recording() = 0;
-    virtual void take_screenshot(const std::string& directory) = 0;
-    virtual void open_recordings_folder(const std::string& directory) = 0;
+    [[nodiscard]] virtual MediaActionResult take_screenshot(
+        const std::string& directory) = 0;
+    [[nodiscard]] virtual MediaActionResult open_recordings_folder(
+        const std::string& directory) = 0;
     virtual void save_key_bindings(const std::vector<int>& bindings) = 0;
     virtual void apply_gamepad_settings(float deadzone, bool vibration) = 0;
     virtual void export_diagnostics() = 0;
@@ -209,11 +217,14 @@ public:
                                     bool show_debug_info,
                                     bool verbose_log) override;
     void set_ready(bool ready) override;
-    void start_recording(const std::string& directory, int format_index,
-                         int quality, int split_minutes) override;
+    [[nodiscard]] MediaActionResult start_recording(
+        const std::string& directory, int format_index, int quality,
+        int split_minutes) override;
     void stop_recording() override;
-    void take_screenshot(const std::string& directory) override;
-    void open_recordings_folder(const std::string& directory) override;
+    [[nodiscard]] MediaActionResult take_screenshot(
+        const std::string& directory) override;
+    [[nodiscard]] MediaActionResult open_recordings_folder(
+        const std::string& directory) override;
     void save_key_bindings(const std::vector<int>& bindings) override;
     void apply_gamepad_settings(float deadzone, bool vibration) override;
     void export_diagnostics() override;
@@ -265,11 +276,14 @@ public:
                                     bool show_debug_info,
                                     bool verbose_log) override;
     void set_ready(bool ready) override;
-    void start_recording(const std::string& directory, int format_index,
-                         int quality, int split_minutes) override;
+    [[nodiscard]] MediaActionResult start_recording(
+        const std::string& directory, int format_index, int quality,
+        int split_minutes) override;
     void stop_recording() override;
-    void take_screenshot(const std::string& directory) override;
-    void open_recordings_folder(const std::string& directory) override;
+    [[nodiscard]] MediaActionResult take_screenshot(
+        const std::string& directory) override;
+    [[nodiscard]] MediaActionResult open_recordings_folder(
+        const std::string& directory) override;
     void save_key_bindings(const std::vector<int>& bindings) override;
     void apply_gamepad_settings(float deadzone, bool vibration) override;
     void export_diagnostics() override;

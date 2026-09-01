@@ -3,11 +3,13 @@
 #include "media_pipeline.hpp"
 #include "pip_link/backend/protocol_codec.hpp"
 #include "pip_link/core/build_info.hpp"
+#include "pip_link/core/media_output_path.hpp"
 
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <windns.h>
 #include <d3d11.h>
 #include <SDL3/SDL.h>
@@ -93,6 +95,20 @@ std::filesystem::path application_data_directory() {
     std::error_code error;
     std::filesystem::create_directories(result, error);
     return result;
+}
+
+std::filesystem::path media_output_directory(std::string_view configured_directory) {
+    PWSTR known_directory = nullptr;
+    std::filesystem::path videos_directory;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Videos, KF_FLAG_CREATE, nullptr,
+                                       &known_directory))) {
+        videos_directory = known_directory;
+        CoTaskMemFree(known_directory);
+    } else {
+        videos_directory = application_data_directory() / L"media";
+    }
+    return core::resolve_media_output_directory(
+        std::filesystem::path{utf16(configured_directory)}, videos_directory);
 }
 
 std::string json_escape(std::string_view value) {
@@ -2037,20 +2053,23 @@ void GroundStationBackendRuntime::set_ready(bool ready) {
     else impl_->append_audit("INFO", ready ? "已进入 READY" : "已退出 READY");
 }
 
-void GroundStationBackendRuntime::start_recording(
+MediaActionResult GroundStationBackendRuntime::start_recording(
     const std::string& directory, int format_index, int quality, int split_minutes) {
     bool video_ready = false;
     {
         std::lock_guard lock(impl_->state_mutex_);
         if (impl_->state_.recording == RecordingState::recording ||
-            impl_->state_.recording == RecordingState::starting) return;
+            impl_->state_.recording == RecordingState::starting) {
+            return {false, "录像已经在运行"};
+        }
         video_ready = impl_->state_.connection == ConnectionState::connected &&
                       impl_->state_.video_available;
         if (video_ready) impl_->state_.recording = RecordingState::starting;
     }
     if (!video_ready) {
-        impl_->append_audit("WARN", "没有有效视频码流，拒绝开始录像");
-        return;
+        const std::string message = "没有有效视频码流，无法开始录像";
+        impl_->append_audit("WARN", message);
+        return {false, message};
     }
     {
         std::lock_guard lock(impl_->config_mutex_);
@@ -2066,7 +2085,8 @@ void GroundStationBackendRuntime::start_recording(
         std::lock_guard lock(impl_->config_mutex_);
         recording_frame_rate = impl_->config_.frame_rate;
     }
-    if (!impl_->recorder_.start(std::filesystem::path(utf16(directory)),
+    const std::filesystem::path output_directory = media_output_directory(directory);
+    if (!impl_->recorder_.start(output_directory,
                                 std::clamp(format_index, 0, 2),
                                 std::clamp(quality, 1, 100),
                                 std::clamp(split_minutes, 0, 120),
@@ -2076,13 +2096,15 @@ void GroundStationBackendRuntime::start_recording(
             impl_->state_.recording = RecordingState::failed;
         }
         impl_->append_audit("ERROR", error);
-        return;
+        return {false, error};
     }
     {
         std::lock_guard lock(impl_->state_mutex_);
         impl_->state_.recording = RecordingState::recording;
     }
-    impl_->append_audit("INFO", "录像已开始: " + impl_->recorder_.output_path().string());
+    const std::string message = "录像已开始: " + impl_->recorder_.output_path().string();
+    impl_->append_audit("INFO", message);
+    return {true, message};
 }
 
 void GroundStationBackendRuntime::stop_recording() {
@@ -2101,36 +2123,45 @@ void GroundStationBackendRuntime::stop_recording() {
     impl_->append_audit("INFO", "录像已保存: " + path.string());
 }
 
-void GroundStationBackendRuntime::take_screenshot(const std::string& directory) {
+MediaActionResult GroundStationBackendRuntime::take_screenshot(
+    const std::string& directory) {
     media::DecodedFrame frame;
     {
         std::lock_guard lock(impl_->frame_mutex_);
         frame = impl_->latest_frame_;
     }
-    std::filesystem::path target(utf16(directory));
+    std::filesystem::path target = media_output_directory(directory);
     std::error_code filesystem_error;
     std::filesystem::create_directories(target, filesystem_error);
     target /= utf16("pip_link_" + local_time("%Y%m%d_%H%M%S") + ".png");
     std::string error;
     if (!filesystem_error && media::save_png(target, frame, error)) {
-        impl_->append_audit("INFO", "截图已保存: " + target.string());
+        const std::string message = "截图已保存: " + target.string();
+        impl_->append_audit("INFO", message);
+        return {true, message};
     } else {
         if (error.empty()) error = "无法创建截图目录: " + filesystem_error.message();
         impl_->append_audit("ERROR", error);
+        return {false, error};
     }
 }
 
-void GroundStationBackendRuntime::open_recordings_folder(const std::string& directory) {
-    std::filesystem::path path(utf16(directory));
+MediaActionResult GroundStationBackendRuntime::open_recordings_folder(
+    const std::string& directory) {
+    const std::filesystem::path path = media_output_directory(directory);
     std::error_code error;
     std::filesystem::create_directories(path, error);
     if (error) {
         impl_->append_audit("ERROR", "无法创建录像目录: " + error.message());
-        return;
+        return {false, "无法创建录像目录: " + error.message()};
     }
     const auto result = reinterpret_cast<std::intptr_t>(
         ShellExecuteW(nullptr, L"open", path.wstring().c_str(), nullptr, nullptr, SW_SHOWNORMAL));
-    if (result <= 32) impl_->append_audit("ERROR", "无法打开录像目录");
+    if (result <= 32) {
+        impl_->append_audit("ERROR", "无法打开录像目录");
+        return {false, "无法打开录像目录"};
+    }
+    return {true, "保存目录已打开: " + path.string()};
 }
 
 void GroundStationBackendRuntime::save_key_bindings(const std::vector<int>& bindings) {

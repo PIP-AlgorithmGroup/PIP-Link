@@ -52,6 +52,8 @@ void FrameEncoder::open_h264() {
     av_opt_set(codec_ctx_->priv_data, "preset",  "ultrafast",   0);
     av_opt_set(codec_ctx_->priv_data, "tune",    "zerolatency", 0);
     av_opt_set(codec_ctx_->priv_data, "profile", "baseline",    0);
+    av_opt_set(codec_ctx_->priv_data, "x264-params",
+               "repeat-headers=1:aud=1", 0);
 
     fprintf(stderr, "[FrameEncoder] open_h264: %dx%d fps=%d bitrate=%dkbps\n",
             cfg_.width, cfg_.height, cfg_.fps, cfg_.target_bitrate);

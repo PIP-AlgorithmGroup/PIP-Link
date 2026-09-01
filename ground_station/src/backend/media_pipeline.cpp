@@ -283,6 +283,28 @@ std::optional<std::pair<UINT32, UINT32>> h264_dimensions(
     return std::pair{width, height};
 }
 
+bool h264_access_unit_can_start_stream(std::span<const std::uint8_t> encoded) {
+    bool has_sps = false;
+    bool has_pps = false;
+    bool has_idr = false;
+    for (std::size_t index = 0; index + 4 < encoded.size(); ++index) {
+        const bool start3 = encoded[index] == 0 && encoded[index + 1] == 0 &&
+                            encoded[index + 2] == 1;
+        const bool start4 = !start3 && encoded[index] == 0 && encoded[index + 1] == 0 &&
+                            encoded[index + 2] == 0 && encoded[index + 3] == 1;
+        if (!start3 && !start4) continue;
+        const std::size_t header = index + (start3 ? 3U : 4U);
+        if (header >= encoded.size()) continue;
+        switch (encoded[header] & 0x1FU) {
+            case 5: has_idr = true; break;
+            case 7: has_sps = true; break;
+            case 8: has_pps = true; break;
+            default: break;
+        }
+    }
+    return has_sps && has_pps && has_idr;
+}
+
 }  // namespace
 
 class FrameDecoder::Impl final {
@@ -802,6 +824,7 @@ public:
             return false;
         }
         codec_ = codec;
+        waiting_for_h264_bootstrap_ = format_index != 2 && codec == 1;
         failed_ = false;
         error_.clear();
         const std::string suffix = timestamp();
@@ -837,7 +860,7 @@ public:
                                               FILE_SHARE_READ | FILE_SHARE_WRITE, &security,
                                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
             std::wstring command = quote_argument(ffmpeg_path);
-            command += L" -hide_banner -loglevel error -y -probesize 32 -analyzeduration 0 -f ";
+            command += L" -hide_banner -loglevel error -y -f ";
             command += codec == 0 ? L"mjpeg" : L"h264";
             command += L" -r " + std::to_wstring(std::clamp(frame_rate, 1, 240));
             command += L" -i pipe:0 -map 0:v:0 -an ";
@@ -883,6 +906,10 @@ public:
         if (codec != codec_) {
             fail("视频编码格式已变化，录像已停止");
             return;
+        }
+        if (waiting_for_h264_bootstrap_) {
+            if (!h264_access_unit_can_start_stream(frame)) return;
+            waiting_for_h264_bootstrap_ = false;
         }
         std::lock_guard lock(mutex_);
         if (!running_) return;
@@ -988,6 +1015,7 @@ public:
     std::atomic_bool running_{false};
     std::mutex lifecycle_mutex_;
     std::uint8_t codec_{};
+    std::atomic_bool waiting_for_h264_bootstrap_{false};
     mutable std::mutex mutex_;
     std::condition_variable condition_;
     std::condition_variable drained_;

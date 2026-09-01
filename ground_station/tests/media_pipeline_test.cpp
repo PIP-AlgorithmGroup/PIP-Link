@@ -79,6 +79,30 @@ int main(int argc, char** argv) {
             std::cerr << "MP4 recorder output is missing\n";
             return 1;
         }
+
+        pip_link::backend::media::StreamRecorder mid_gop_recorder;
+        if (!mid_gop_recorder.start(output_directory, 0, 85, 1, 1, 30, error)) {
+            std::cerr << "mid-GOP MP4 recorder start failed: " << error << '\n';
+            return 1;
+        }
+        for (std::size_t index = 10; index + 1 < access_unit_starts.size(); ++index) {
+            const std::size_t start = access_unit_starts[index];
+            mid_gop_recorder.write(
+                1, std::span<const std::uint8_t>{h264}.subspan(
+                       start, access_unit_starts[index + 1] - start));
+        }
+        mid_gop_recorder.stop();
+        bool segmented_output_exists = false;
+        for (const auto& item : std::filesystem::directory_iterator(output_directory)) {
+            if (item.path().filename().string().ends_with("_000.mp4") &&
+                item.file_size() > 0) {
+                segmented_output_exists = true;
+            }
+        }
+        if (!mid_gop_recorder.healthy() || !segmented_output_exists) {
+            std::cerr << "MP4 recorder could not start in the middle of an H.264 GOP\n";
+            return 1;
+        }
     }
     const auto screenshot = output_directory / "frame.png";
     if (!pip_link::backend::media::save_png(screenshot, frame, error) ||

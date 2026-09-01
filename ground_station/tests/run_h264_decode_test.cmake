@@ -1,8 +1,9 @@
 execute_process(
     COMMAND "${FFMPEG_EXECUTABLE}"
             -hide_banner -loglevel error -y -loop 1 -i "${TEST_IMAGE}"
-            -frames:v 10 -vf scale=640:360 -c:v libx264 -preset ultrafast
-            -tune zerolatency -x264-params aud=1:keyint=30 -f h264 "${H264_OUTPUT}"
+            -frames:v 40 -vf scale=640:360 -c:v libx264 -preset ultrafast
+            -tune zerolatency -x264-params aud=1:keyint=30:repeat-headers=1
+            -f h264 "${H264_OUTPUT}"
     RESULT_VARIABLE encode_result
 )
 if(NOT encode_result EQUAL 0)

@@ -300,8 +300,9 @@ int main() {
             std::cerr << "remote video settings were queried more than once per connection\n";
             failed = true;
         }
-        backend.start_recording(output_directory.string(), 2, 85, 0);
-        if (backend.runtime_state().recording ==
+        const auto premature_recording =
+            backend.start_recording(output_directory.string(), 2, 85, 0);
+        if (premature_recording.succeeded || backend.runtime_state().recording ==
             pip_link::backend::RecordingState::recording) {
             std::cerr << "recording started before a live video stream\n";
             failed = true;
@@ -327,8 +328,9 @@ int main() {
             std::cerr << "decoded video was not marked available\n";
             failed = true;
         }
-        backend.start_recording(output_directory.string(), 2, 85, 0);
-        if (backend.runtime_state().recording !=
+        const auto recording_started =
+            backend.start_recording(output_directory.string(), 2, 85, 0);
+        if (!recording_started.succeeded || backend.runtime_state().recording !=
             pip_link::backend::RecordingState::recording) {
             std::cerr << "raw stream recording did not start after video became live\n";
             failed = true;
@@ -366,7 +368,12 @@ int main() {
             std::cerr << "video frame was not reassembled and decoded\n";
             failed = true;
         }
-        backend.take_screenshot(output_directory.string());
+        const auto screenshot_result =
+            backend.take_screenshot(output_directory.string());
+        if (!screenshot_result.succeeded) {
+            std::cerr << "screenshot request failed: " << screenshot_result.message << '\n';
+            failed = true;
+        }
         backend.stop_recording();
         bool has_screenshot = false;
         bool has_recording = false;

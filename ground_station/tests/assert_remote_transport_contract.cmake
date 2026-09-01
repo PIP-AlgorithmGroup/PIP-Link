@@ -26,3 +26,8 @@ string(FIND "${encoder_source}" "quality_ = std::clamp(cfg.quality" quality_upda
 if(quality_update EQUAL -1)
     message(FATAL_ERROR "FrameEncoder does not apply JPEG quality updates")
 endif()
+
+string(FIND "${encoder_source}" "repeat-headers=1" repeated_h264_headers)
+if(repeated_h264_headers EQUAL -1)
+    message(FATAL_ERROR "H.264 keyframes do not repeat SPS/PPS for mid-stream recording")
+endif()
