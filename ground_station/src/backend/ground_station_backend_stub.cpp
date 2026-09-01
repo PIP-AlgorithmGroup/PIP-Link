@@ -22,6 +22,11 @@ VideoSurface GroundStationBackendStub::latest_video_surface() const {
     return {};
 }
 
+RuntimeState GroundStationBackendStub::runtime_state() const {
+    // TODO: 返回连接与录像管线经过后端确认的实时状态。
+    return {};
+}
+
 void GroundStationBackendStub::scan_devices(const std::string&) {
     // TODO: 启动服务发现。
 }

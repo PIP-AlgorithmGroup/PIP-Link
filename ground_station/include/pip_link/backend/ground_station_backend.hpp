@@ -41,6 +41,27 @@ struct ControlInput final {
     std::array<std::uint8_t, 10> keyboard{};
 };
 
+enum class ConnectionState {
+    disconnected,
+    connecting,
+    connected,
+    disconnecting,
+    failed,
+};
+
+enum class RecordingState {
+    idle,
+    starting,
+    recording,
+    stopping,
+    failed,
+};
+
+struct RuntimeState final {
+    ConnectionState connection{ConnectionState::disconnected};
+    RecordingState recording{RecordingState::idle};
+};
+
 class GroundStationBackend {
 public:
     virtual ~GroundStationBackend() = default;
@@ -49,6 +70,7 @@ public:
     [[nodiscard]] virtual TelemetrySnapshot telemetry() const = 0;
     [[nodiscard]] virtual std::vector<AuditEntry> audit_entries() const = 0;
     [[nodiscard]] virtual VideoSurface latest_video_surface() const = 0;
+    [[nodiscard]] virtual RuntimeState runtime_state() const = 0;
 
     virtual void scan_devices(const std::string& service_name) = 0;
     virtual void connect_device(const DeviceInfo& device) = 0;
@@ -92,12 +114,13 @@ public:
     [[nodiscard]] virtual std::string execute_console_command(const std::string& command) = 0;
 };
 
-class GroundStationBackendStub final : public GroundStationBackend {
+class GroundStationBackendStub : public GroundStationBackend {
 public:
     [[nodiscard]] std::vector<DeviceInfo> discovered_devices() const override;
     [[nodiscard]] TelemetrySnapshot telemetry() const override;
     [[nodiscard]] std::vector<AuditEntry> audit_entries() const override;
     [[nodiscard]] VideoSurface latest_video_surface() const override;
+    [[nodiscard]] RuntimeState runtime_state() const override;
 
     void scan_devices(const std::string& service_name) override;
     void connect_device(const DeviceInfo& device) override;

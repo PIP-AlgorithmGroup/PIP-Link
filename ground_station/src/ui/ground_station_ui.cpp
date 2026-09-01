@@ -1,6 +1,7 @@
 #include "pip_link/ui/ground_station_ui.hpp"
 
 #include "pip_link/core/smooth_scroll.hpp"
+#include "pip_link/ui/control_input_mapping.hpp"
 
 #include <imgui.h>
 
@@ -52,51 +53,6 @@ constexpr std::array<SettingsTab, 7> tabs{{
     {"界面", "界面", "HUD 显示、缩放、透明度和语言"},
 }};
 
-struct KeyVisual final {
-    ImGuiKey key;
-    int bit;
-    const char* label;
-};
-
-// 与旧 Python 客户端发往协议 keyboard_state[10] 的位序保持一致。
-constexpr std::array<KeyVisual, 70> key_visuals{{
-    {ImGuiKey_Escape, 0, "ESC"}, {ImGuiKey_F1, 1, "F1"},
-    {ImGuiKey_F2, 2, "F2"}, {ImGuiKey_F3, 3, "F3"},
-    {ImGuiKey_F4, 4, "F4"}, {ImGuiKey_F6, 6, "F6"},
-    {ImGuiKey_F7, 7, "F7"}, {ImGuiKey_F8, 8, "F8"},
-    {ImGuiKey_F9, 9, "F9"}, {ImGuiKey_F10, 10, "F10"},
-    {ImGuiKey_F11, 11, "F11"}, {ImGuiKey_F12, 12, "F12"},
-    {ImGuiKey_GraveAccent, 13, "`"}, {ImGuiKey_1, 14, "1"},
-    {ImGuiKey_2, 15, "2"}, {ImGuiKey_3, 16, "3"},
-    {ImGuiKey_4, 17, "4"}, {ImGuiKey_5, 18, "5"},
-    {ImGuiKey_6, 19, "6"}, {ImGuiKey_7, 20, "7"},
-    {ImGuiKey_8, 21, "8"}, {ImGuiKey_9, 22, "9"},
-    {ImGuiKey_0, 23, "0"}, {ImGuiKey_Minus, 24, "-"},
-    {ImGuiKey_Equal, 25, "="}, {ImGuiKey_Backspace, 26, "BS"},
-    {ImGuiKey_Tab, 27, "TAB"}, {ImGuiKey_Q, 28, "Q"},
-    {ImGuiKey_W, 29, "W"}, {ImGuiKey_E, 30, "E"},
-    {ImGuiKey_R, 31, "R"}, {ImGuiKey_T, 32, "T"},
-    {ImGuiKey_Y, 33, "Y"}, {ImGuiKey_U, 34, "U"},
-    {ImGuiKey_I, 35, "I"}, {ImGuiKey_O, 36, "O"},
-    {ImGuiKey_P, 37, "P"}, {ImGuiKey_LeftBracket, 38, "["},
-    {ImGuiKey_RightBracket, 39, "]"}, {ImGuiKey_Backslash, 40, "\\"},
-    {ImGuiKey_CapsLock, 41, "CAPS"}, {ImGuiKey_A, 42, "A"},
-    {ImGuiKey_S, 43, "S"}, {ImGuiKey_D, 44, "D"},
-    {ImGuiKey_F, 45, "F"}, {ImGuiKey_G, 46, "G"},
-    {ImGuiKey_H, 47, "H"}, {ImGuiKey_J, 48, "J"},
-    {ImGuiKey_K, 49, "K"}, {ImGuiKey_L, 50, "L"},
-    {ImGuiKey_Semicolon, 51, ";"}, {ImGuiKey_Apostrophe, 52, "'"},
-    {ImGuiKey_Enter, 53, "ENT"}, {ImGuiKey_LeftShift, 54, "LSHF"},
-    {ImGuiKey_Z, 55, "Z"}, {ImGuiKey_X, 56, "X"},
-    {ImGuiKey_C, 57, "C"}, {ImGuiKey_V, 58, "V"},
-    {ImGuiKey_B, 59, "B"}, {ImGuiKey_N, 60, "N"},
-    {ImGuiKey_M, 61, "M"}, {ImGuiKey_Comma, 62, ","},
-    {ImGuiKey_Period, 63, "."}, {ImGuiKey_Slash, 64, "/"},
-    {ImGuiKey_RightShift, 65, "RSHF"}, {ImGuiKey_LeftCtrl, 66, "LCTL"},
-    {ImGuiKey_LeftAlt, 67, "LALT"}, {ImGuiKey_Space, 68, "SPC"},
-    {ImGuiKey_RightAlt, 69, "RALT"}, {ImGuiKey_RightCtrl, 70, "RCTL"},
-}};
-
 ImU32 color_with_alpha(const ImVec4& color, float alpha) {
     ImVec4 adjusted = color;
     adjusted.w *= std::clamp(alpha, 0.0F, 1.0F);
@@ -137,6 +93,27 @@ bool GroundStationUi::quit_requested() const noexcept {
     return quit_requested_;
 }
 
+bool GroundStationUi::wants_relative_mouse_mode() const noexcept {
+    return ready_ && capture_mouse_ && !settings_open_ && !console_open_;
+}
+
+void GroundStationUi::set_mouse_capture_active(bool active) noexcept {
+    mouse_capture_active_ = active;
+}
+
+bool GroundStationUi::is_connected() const noexcept {
+    return connection_state_ == backend::ConnectionState::connected;
+}
+
+bool GroundStationUi::is_recording() const noexcept {
+    return recording_state_ == backend::RecordingState::recording;
+}
+
+bool GroundStationUi::connection_busy() const noexcept {
+    return connection_state_ == backend::ConnectionState::connecting ||
+           connection_state_ == backend::ConnectionState::disconnecting;
+}
+
 void GroundStationUi::set_feedback(std::string message) {
     feedback_ = std::move(message);
 }
@@ -152,6 +129,28 @@ void GroundStationUi::on_focus_lost() {
     leave_ready("窗口失去焦点，已自动退出 READY");
 }
 
+void GroundStationUi::on_mouse_capture_failed() {
+    mouse_capture_active_ = false;
+    leave_ready("无法捕获鼠标，已自动退出 READY");
+}
+
+void GroundStationUi::sync_backend_state() {
+    const bool was_connected = is_connected();
+    const bool was_recording = is_recording();
+    const backend::RuntimeState state = backend_.runtime_state();
+    connection_state_ = state.connection;
+    recording_state_ = state.recording;
+
+    if (was_connected && !is_connected()) {
+        leave_ready("连接已断开，已自动退出 READY");
+    }
+    if (!was_recording && is_recording()) {
+        recording_started_at_ = ImGui::GetTime();
+    } else if (was_recording && !is_recording()) {
+        recording_started_at_ = 0.0;
+    }
+}
+
 void GroundStationUi::open_settings() {
     leave_ready("打开设置，已自动退出 READY");
     settings_open_ = true;
@@ -159,7 +158,7 @@ void GroundStationUi::open_settings() {
 
 void GroundStationUi::toggle_ready() {
     if (settings_open_ || console_open_) return;
-    if (!connected_) {
+    if (!is_connected()) {
         set_feedback("尚未连接机器人，不能进入 READY");
         return;
     }
@@ -170,6 +169,7 @@ void GroundStationUi::toggle_ready() {
 
 void GroundStationUi::submit_control_input() {
     if (!ready_ || settings_open_ || console_open_) return;
+    if (capture_mouse_ && !mouse_capture_active_) return;
     ImGuiIO& io = ImGui::GetIO();
     backend::ControlInput input{};
     input.mouse_delta_x = capture_mouse_ ? io.MouseDelta.x * mouse_sensitivity_ : 0.0F;
@@ -184,10 +184,15 @@ void GroundStationUi::submit_control_input() {
     if (ImGui::IsMouseDown(4)) input.mouse_buttons |= 0x10U;
     input.mouse_wheel = static_cast<int>(std::clamp(io.MouseWheel, -1.0F, 1.0F));
     if (send_keyboard_) {
-        for (const auto& visual : key_visuals) {
-            if (ImGui::IsKeyDown(visual.key)) {
-                input.keyboard[static_cast<std::size_t>(visual.bit / 8)] |=
-                    static_cast<std::uint8_t>(1U << (visual.bit % 8));
+        for (const auto& visual : protocol_key_visuals()) {
+            if (ImGui::IsKeyDown(static_cast<ImGuiKey>(visual.imgui_key))) {
+                map_physical_key(input, visual.imgui_key, key_bindings_);
+            }
+        }
+        for (std::size_t index = forward_binding; index <= special_two_binding; ++index) {
+            const int physical_key = key_bindings_[index];
+            if (ImGui::IsKeyDown(static_cast<ImGuiKey>(physical_key))) {
+                map_physical_key(input, physical_key, key_bindings_);
             }
         }
     }
@@ -195,6 +200,7 @@ void GroundStationUi::submit_control_input() {
 }
 
 void GroundStationUi::draw(float delta_seconds, float display_scale) {
+    sync_backend_state();
     ImGuiIO& io = ImGui::GetIO();
     const bool shortcuts_enabled = !io.WantTextInput && rebinding_action_ < 0;
     if (shortcuts_enabled && !display_confirmation_open_ && !about_open_ &&
@@ -303,7 +309,7 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
                       {center.x - title_size.x * 0.5F,
                        card_min.y + 112.0F * scale},
                       IM_COL32(28, 47, 60, 255), title);
-        const char* description = connected_
+        const char* description = is_connected()
                                       ? "控制链路已建立，正在等待后端提供首个视频帧"
                                       : "连接机器人后，视频画面将在这里铺满整个窗口";
         const ImVec2 description_size = ImGui::CalcTextSize(description);
@@ -314,18 +320,18 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         const ImVec2 status_center{center.x - 55.0F * scale,
                                    card_min.y + 202.0F * scale};
         draw->AddCircleFilled(status_center, 4.0F * scale,
-                              connected_ ? IM_COL32(35, 181, 104, 255)
+                              is_connected() ? IM_COL32(35, 181, 104, 255)
                                          : IM_COL32(240, 151, 45, 255));
         draw->AddText({status_center.x + 11.0F * scale,
                        status_center.y - ImGui::GetTextLineHeight() * 0.5F},
                        IM_COL32(49, 67, 80, 255),
-                      connected_ ? "链路已连接" : "尚未连接" );
+                      is_connected() ? "链路已连接" : "尚未连接" );
 
         ImGui::SetCursorScreenPos({center.x - 125.0F * scale,
                                    card_max.y - 62.0F * scale});
         char no_signal_action[96]{};
         std::snprintf(no_signal_action, sizeof(no_signal_action), "%s  [%s]",
-                      connected_ ? "打开图传设置" : "打开连接设置",
+                      is_connected() ? "打开图传设置" : "打开连接设置",
                       ImGui::GetKeyName(
                           static_cast<ImGuiKey>(key_bindings_[toggle_settings_binding])));
         ImGui::PushStyleColor(ImGuiCol_Text, {1.0F, 1.0F, 1.0F, 1.0F});
@@ -333,7 +339,7 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.00F, 0.52F, 0.70F, 1.0F});
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.00F, 0.36F, 0.52F, 1.0F});
         if (ImGui::Button(no_signal_action, {250.0F * scale, 42.0F * scale})) {
-            active_settings_tab_ = connected_ ? 1 : 0;
+            active_settings_tab_ = is_connected() ? 1 : 0;
             open_settings();
         }
         ImGui::PopStyleColor(4);
@@ -447,8 +453,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         int pressed_count = 0;
         draw->PushClipRect({p0.x + 12.0F * unit, p0.y + 126.0F * unit},
                            {p1.x - 12.0F * unit, p1.y - 10.0F * unit}, true);
-        for (const auto& visual : key_visuals) {
-            if (ImGui::IsKeyDown(visual.key)) {
+        for (const auto& visual : protocol_key_visuals()) {
+            if (ImGui::IsKeyDown(static_cast<ImGuiKey>(visual.imgui_key))) {
                 draw_key_tag(draw, tag_cursor, tag_bounds, visual.label, unit,
                              hud_font_size, opacity);
                 ++pressed_count;
@@ -572,8 +578,8 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
             ImGui::TableNextColumn();
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
                                  (header_height - ImGui::GetTextLineHeight()) * 0.5F);
-            ImGui::TextColored(connected_ ? success : warning,
-                               connected_ ? "已连接" : "未连接");
+            ImGui::TextColored(is_connected() ? success : warning,
+                               is_connected() ? "已连接" : "未连接");
         }
         ImGui::TableNextColumn();
         ImGui::SetCursorPosY(ImGui::GetCursorPosY() +

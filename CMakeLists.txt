@@ -102,6 +102,7 @@ if(PIP_LINK_BUILD_GUI)
         ground_station/src/app/application.cpp
         ground_station/src/backend/ground_station_backend_stub.cpp
         ground_station/src/platform/desktop_window.cpp
+        ground_station/src/ui/control_input_mapping.cpp
         ground_station/src/ui/ground_station_ui.cpp
         ground_station/src/ui/ground_station_settings.cpp
     )

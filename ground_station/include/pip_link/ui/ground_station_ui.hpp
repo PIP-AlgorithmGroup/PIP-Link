@@ -15,7 +15,10 @@ public:
 
     void draw(float delta_seconds, float display_scale);
     void on_focus_lost();
+    void on_mouse_capture_failed();
+    void set_mouse_capture_active(bool active) noexcept;
     [[nodiscard]] bool quit_requested() const noexcept;
+    [[nodiscard]] bool wants_relative_mouse_mode() const noexcept;
 
 private:
     void draw_fpv(float delta_seconds, float scale);
@@ -43,14 +46,18 @@ private:
     void begin_display_preview(int previous_resolution, int previous_window_mode,
                                int previous_display);
     void set_feedback(std::string message);
+    void sync_backend_state();
+    [[nodiscard]] bool is_connected() const noexcept;
+    [[nodiscard]] bool is_recording() const noexcept;
+    [[nodiscard]] bool connection_busy() const noexcept;
 
     backend::GroundStationBackend& backend_;
     bool settings_open_{false};
     bool console_open_{false};
     bool quit_requested_{false};
     bool ready_{false};
-    bool connected_{false};
-    bool recording_{false};
+    backend::ConnectionState connection_state_{backend::ConnectionState::disconnected};
+    backend::RecordingState recording_state_{backend::RecordingState::idle};
     bool scanning_{false};
     bool auto_reconnect_{true};
     bool low_latency_{true};
@@ -59,6 +66,7 @@ private:
     bool invert_y_{false};
     bool invert_pitch_{false};
     bool capture_mouse_{true};
+    bool mouse_capture_active_{false};
     bool send_keyboard_{true};
     bool show_input_hud_{true};
     bool show_status_hud_{true};

@@ -148,16 +148,39 @@ struct DesktopWindow::Impl final {
         return SUCCEEDED(result) && create_render_target();
     }
 
-    void resize(int width, int height) {
+    [[nodiscard]] bool resize(int width, int height) {
         if (width <= 0 || height <= 0 || swap_chain == nullptr) {
-            return;
+            return true;
         }
         release_render_target(render_target);
-        if (SUCCEEDED(swap_chain->ResizeBuffers(0, static_cast<UINT>(width),
-                                                static_cast<UINT>(height),
-                                                DXGI_FORMAT_UNKNOWN, 0))) {
-            create_render_target();
+        const HRESULT resize_result = swap_chain->ResizeBuffers(
+            0, static_cast<UINT>(width), static_cast<UINT>(height),
+            DXGI_FORMAT_UNKNOWN, 0);
+        if (FAILED(resize_result)) {
+            std::cerr << "Direct3D 11 swap-chain resize failed.\n";
+            return false;
         }
+        if (!create_render_target()) {
+            std::cerr << "Direct3D 11 render-target recreation failed.\n";
+            return false;
+        }
+        return true;
+    }
+
+    void update_mouse_capture() {
+        const bool requested = ui.wants_relative_mouse_mode();
+        const bool active = SDL_GetWindowRelativeMouseMode(window);
+        if (requested == active) {
+            ui.set_mouse_capture_active(active);
+            return;
+        }
+        if (!SDL_SetWindowRelativeMouseMode(window, requested)) {
+            std::cerr << "Relative mouse mode change failed: " << SDL_GetError() << '\n';
+            ui.set_mouse_capture_active(active);
+            if (requested) ui.on_mouse_capture_failed();
+            return;
+        }
+        ui.set_mouse_capture_active(requested);
     }
 
     void shutdown() {
@@ -265,13 +288,17 @@ int DesktopWindow::run() {
             }
             if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED &&
                 event.window.windowID == SDL_GetWindowID(impl_->window)) {
-                impl_->resize(event.window.data1, event.window.data2);
+                if (!impl_->resize(event.window.data1, event.window.data2)) {
+                    running = false;
+                }
             }
             if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST &&
                 event.window.windowID == SDL_GetWindowID(impl_->window)) {
                 impl_->ui.on_focus_lost();
             }
         }
+
+        if (!running) break;
 
         const auto now = std::chrono::steady_clock::now();
         const float delta_seconds = std::min(
@@ -282,10 +309,17 @@ int DesktopWindow::run() {
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
         impl_->ui.draw(delta_seconds, impl_->display_scale);
+        impl_->update_mouse_capture();
         if (impl_->ui.quit_requested()) {
             running = false;
         }
         ImGui::Render();
+
+        if (impl_->render_target == nullptr) {
+            std::cerr << "Direct3D 11 render target is unavailable.\n";
+            running = false;
+            continue;
+        }
 
         constexpr float clear_color[4] = {0.91F, 0.94F, 0.96F, 1.0F};
         impl_->context->OMSetRenderTargets(1, &impl_->render_target, nullptr);

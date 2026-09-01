@@ -259,16 +259,30 @@ void GroundStationUi::draw_connection_page(float scale) {
 
     begin_card("ConnectionSession", {layout.width, 250.0F * scale});
     section_title("当前会话", "连接状态和直接操作");
-    status_chip(connected_ ? "机器人已连接" : "等待连接", connected_ ? success : warning);
-    if (connected_) {
+    const char* connection_label = "等待连接";
+    ImVec4 connection_color = warning;
+    if (connection_state_ == backend::ConnectionState::connecting) {
+        connection_label = "正在连接";
+        connection_color = accent;
+    } else if (connection_state_ == backend::ConnectionState::connected) {
+        connection_label = "机器人已连接";
+        connection_color = success;
+    } else if (connection_state_ == backend::ConnectionState::disconnecting) {
+        connection_label = "正在断开";
+        connection_color = warning;
+    } else if (connection_state_ == backend::ConnectionState::failed) {
+        connection_label = "连接失败";
+        connection_color = danger;
+    }
+    status_chip(connection_label, connection_color);
+    if (is_connected()) {
         ImGui::TextColored(text_secondary, "控制和图传会话由后端维护");
         ImGui::Dummy({0.0F, 8.0F * scale});
         if (danger_button("安全断开", 150.0F * scale)) {
             leave_ready("断开连接，已退出 READY");
             backend_.disconnect_device();
-            connected_ = false;
             selected_device_ = -1;
-            set_feedback("断开请求已发送");
+            set_feedback("断开请求已发送，等待后端确认");
         }
     } else {
         ImGui::TextColored(text_secondary, "连接成功后才能进入 READY");
@@ -319,7 +333,7 @@ void GroundStationUi::draw_connection_page(float scale) {
         ImGui::InputTextWithHint("##ManualAddress", "IP:端口", manual_address_.data(),
                                  manual_address_.size());
         ImGui::SameLine();
-        ImGui::BeginDisabled(connected_);
+        ImGui::BeginDisabled(is_connected() || connection_busy());
         direct_connect_clicked = action_button("直接连接", connect_button_width);
         ImGui::EndDisabled();
         ImGui::EndTable();
@@ -339,8 +353,7 @@ void GroundStationUi::draw_connection_page(float scale) {
             set_feedback("机器人地址格式无效，请使用 IP:端口");
         } else {
             backend_.connect_device({"手动地址", manual_address_.data(), 0});
-            connected_ = true;
-            set_feedback("手动连接请求已发送");
+            set_feedback("手动连接请求已发送，等待后端确认");
         }
     }
 
@@ -389,11 +402,10 @@ void GroundStationUi::draw_connection_page(float scale) {
             ImGui::GetScrollY(), device_scroll_target_, ImGui::GetIO().DeltaTime, scale));
         ImGui::EndChild();
         ImGui::PopStyleColor();
-        ImGui::BeginDisabled(selected_device_ < 0 || connected_);
+        ImGui::BeginDisabled(selected_device_ < 0 || is_connected() || connection_busy());
         if (action_button("连接所选机器人", 175.0F * scale)) {
             backend_.connect_device(devices[static_cast<std::size_t>(selected_device_)]);
-            connected_ = true;
-            set_feedback("设备连接请求已发送");
+            set_feedback("设备连接请求已发送，等待后端确认");
         }
         ImGui::EndDisabled();
     }
@@ -621,7 +633,8 @@ void GroundStationUi::draw_recording_page(float scale) {
     const ColumnLayout layout = columns(scale);
     begin_card("RecordingFiles", {layout.width, 335.0F * scale});
     section_title("文件与质量", "录制期间锁定参数，停止后可继续修改");
-    ImGui::BeginDisabled(recording_);
+    ImGui::BeginDisabled(recording_state_ != backend::RecordingState::idle &&
+                         recording_state_ != backend::RecordingState::failed);
     ImGui::TextColored(text_secondary, "保存目录");
     ImGui::SetNextItemWidth(-1.0F);
     ImGui::InputTextWithHint("##RecordingDirectory", "例如 recordings", recording_directory_.data(),
@@ -637,28 +650,40 @@ void GroundStationUi::draw_recording_page(float scale) {
     next_column_or_row(layout, scale);
     begin_card("RecordingActions", {layout.width, 335.0F * scale});
     section_title("录制控制", "操作即时执行，不使用统一应用按钮");
-    status_chip(recording_ ? "正在录制" : "未录制", recording_ ? danger : text_secondary);
-    if (!recording_) {
+    const char* recording_label = "未录制";
+    ImVec4 recording_color = text_secondary;
+    if (recording_state_ == backend::RecordingState::starting) {
+        recording_label = "正在启动录制";
+        recording_color = warning;
+    } else if (recording_state_ == backend::RecordingState::recording) {
+        recording_label = "正在录制";
+        recording_color = danger;
+    } else if (recording_state_ == backend::RecordingState::stopping) {
+        recording_label = "正在保存录制";
+        recording_color = warning;
+    } else if (recording_state_ == backend::RecordingState::failed) {
+        recording_label = "录制失败";
+        recording_color = danger;
+    }
+    status_chip(recording_label, recording_color);
+    if (recording_state_ == backend::RecordingState::idle ||
+        recording_state_ == backend::RecordingState::failed) {
         if (action_button("开始录制", 160.0F * scale)) {
             if (!core::is_valid_directory(recording_directory_.data())) {
                 set_feedback("保存目录不能为空");
             } else {
                 backend_.start_recording(recording_directory_.data(), recording_format_,
                                          recording_quality_, split_minutes_);
-                recording_ = true;
-                recording_started_at_ = ImGui::GetTime();
-                set_feedback("录像启动请求已发送");
+                set_feedback("录像启动请求已发送，等待后端确认");
             }
         }
-    } else {
+    } else if (is_recording()) {
         const int elapsed = static_cast<int>(ImGui::GetTime() - recording_started_at_);
         ImGui::TextColored(danger, "REC  %02d:%02d:%02d", elapsed / 3600,
                            (elapsed / 60) % 60, elapsed % 60);
         if (action_button("停止并保存", 160.0F * scale)) {
             backend_.stop_recording();
-            recording_ = false;
-            recording_started_at_ = 0.0;
-            set_feedback("录像停止请求已发送");
+            set_feedback("录像停止请求已发送，等待后端确认");
         }
     }
     ImGui::SameLine();
@@ -731,8 +756,8 @@ void GroundStationUi::draw_diagnostics_page(float scale) {
         begin_card("RawDebugInfo", {0.0F, 135.0F * scale});
         section_title("原始调试信息");
         ImGui::Text("decoded_frames=%d  connected=%s  ready=%s  recording=%s",
-                    value.decoded_frames, connected_ ? "true" : "false",
-                    ready_ ? "true" : "false", recording_ ? "true" : "false");
+                    value.decoded_frames, is_connected() ? "true" : "false",
+                    ready_ ? "true" : "false", is_recording() ? "true" : "false");
         ImGui::TextColored(text_secondary,
                            "encoder=%d decoder=%d fps=%d bitrate_kbps=%d fec=%.2f",
                            encoder_index_, decoder_index_, frame_rate_, bitrate_kbps_,
