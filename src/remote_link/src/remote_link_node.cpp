@@ -87,9 +87,10 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
 
     control_rx_->set_command_callback(
         [this](const std::string& ip, uint32_t seq, double t1,
+               bool is_ready,
                const uint8_t kb[10], int16_t dx, int16_t dy,
                uint8_t btn, int8_t scroll) {
-            on_command(ip, seq, t1, kb, dx, dy, btn, scroll);
+            on_command(ip, seq, t1, is_ready, kb, dx, dy, btn, scroll);
         });
 
     control_rx_->set_param_update_callback(
@@ -157,7 +158,7 @@ void RemoteLinkNode::on_frame(sensor_msgs::msg::Image::ConstSharedPtr msg) {
 
 void RemoteLinkNode::on_command(
     const std::string& client_ip,
-    uint32_t seq, double t1,
+    uint32_t seq, double t1, bool is_ready,
     const uint8_t kb[10],
     int16_t mouse_dx, int16_t mouse_dy,
     uint8_t mouse_buttons, int8_t scroll_delta)
@@ -168,7 +169,7 @@ void RemoteLinkNode::on_command(
     msg->client_ip = client_ip;
     msg->seq = seq;
     msg->t1  = t1;
-    msg->is_ready = true;
+    msg->is_ready = is_ready;
 
     // mouse velocity
     constexpr double DT_MIN = 0.001;

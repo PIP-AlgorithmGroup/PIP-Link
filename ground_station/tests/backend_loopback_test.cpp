@@ -121,6 +121,9 @@ int main() {
     }
     std::atomic_bool running{true};
     std::atomic_bool saw_enabled_control{false};
+    std::atomic_bool saw_disabled_control{false};
+    std::atomic_bool allow_valid_ack{false};
+    std::atomic_bool sent_stale_ack{false};
     std::atomic_bool saw_video_settings{false};
     std::atomic_int parameter_queries{0};
     std::atomic_bool sent_video{false};
@@ -133,6 +136,7 @@ int main() {
     std::atomic_bool has_video_client{false};
     std::thread fake_air_unit([&] {
         std::array<std::uint8_t, 2048> buffer{};
+        auto last_video_send = std::chrono::steady_clock::time_point{};
         while (running) {
             sockaddr_in from{};
             int from_length = sizeof(from);
@@ -152,14 +156,19 @@ int main() {
                        static_cast<int>(response.size()), 0,
                        reinterpret_cast<const sockaddr*>(&from), from_length);
             } else {
-                const auto ack = acknowledgment(sequence);
+                const auto ack = acknowledgment(allow_valid_ack ? sequence : sequence + 1000U);
+                if (!allow_valid_ack) sent_stale_ack = true;
                 sendto(server, reinterpret_cast<const char*>(ack.data()),
                        static_cast<int>(ack.size()), 0,
                        reinterpret_cast<const sockaddr*>(&from), from_length);
             }
-            if (buffer[3] == 0x01 && count == 37 && buffer[17] == 1 &&
+            if (buffer[3] == 0x01 && count == 37 && (buffer[4] & 0x01U) != 0 &&
+                buffer[17] == 1 &&
                 buffer[27] == 12 && buffer[29] == 0xF9 && buffer[30] == 0xFF) {
                 saw_enabled_control = true;
+            }
+            if (buffer[3] == 0x01 && count == 37 && (buffer[4] & 0x01U) == 0) {
+                saw_disabled_control = true;
             }
             if (buffer[3] == 0x02 && count > 21) {
                 const std::string json(
@@ -177,19 +186,22 @@ int main() {
                 static_cast<int>(buffer.size()), 0,
                 reinterpret_cast<sockaddr*>(&video_client), &video_client_length);
             if (video_count == 8 && std::memcmp(buffer.data(), "REGISTER", 8) == 0) {
+                const bool new_client = !has_video_client.exchange(true);
                 std::lock_guard lock(video_client_mutex);
                 registered_video_client = video_client;
                 registered_video_client_length = video_client_length;
-                has_video_client = true;
-                sent_video = false;
+                if (new_client) sent_video = false;
             }
-            if (allow_video && has_video_client && !sent_video) {
+            const auto video_now = std::chrono::steady_clock::now();
+            if (allow_video && has_video_client &&
+                (!sent_video || video_now - last_video_send >= std::chrono::milliseconds(100))) {
                 {
                     std::lock_guard lock(video_client_mutex);
                     video_client = registered_video_client;
                     video_client_length = registered_video_client_length;
                 }
                 constexpr std::size_t chunk_size = 60000;
+                const std::uint32_t current_frame_id = video_frame_id.fetch_add(1);
                 const std::uint16_t chunks = static_cast<std::uint16_t>(
                     (image.size() + chunk_size - 1) / chunk_size);
                 std::vector<std::uint16_t> order;
@@ -198,7 +210,7 @@ int main() {
                 for (const std::uint16_t index : order) {
                     const std::size_t offset = static_cast<std::size_t>(index) * chunk_size;
                     const auto packet = video_chunk(
-                        video_frame_id.load(), chunks, index,
+                        current_frame_id, chunks, index,
                         std::span<const std::uint8_t>{image}.subspan(
                             offset, std::min(chunk_size, image.size() - offset)));
                     sendto(video_server, reinterpret_cast<const char*>(packet.data()),
@@ -207,6 +219,7 @@ int main() {
                            video_client_length);
                 }
                 sent_video = true;
+                last_video_send = video_now;
             }
         }
     });
@@ -217,6 +230,13 @@ int main() {
         backend.apply_video_settings(2, 3, 0, 0, 0, 60, 12000, false,
                                      0.2F, 0, 0, 0, 0, true, true);
         backend.connect_device({"Loopback", "127.0.0.1:26000", 100});
+        if (!wait_for([&] { return sent_stale_ack.load(); }, std::chrono::seconds(1)) ||
+            backend.runtime_state().connection !=
+                pip_link::backend::ConnectionState::connecting) {
+            std::cerr << "stale ACK incorrectly established the session\n";
+            failed = true;
+        }
+        allow_valid_ack = true;
         if (!wait_for([&] {
                 return backend.runtime_state().connection ==
                        pip_link::backend::ConnectionState::connected;
@@ -263,10 +283,47 @@ int main() {
         input.mouse_delta_x = 12;
         input.mouse_delta_y = -7;
         backend.set_ready(true);
+        if (backend.runtime_state().ready) {
+            std::cerr << "READY was accepted before a live video frame\n";
+            failed = true;
+        }
+        backend.submit_control_input(input);
+        if (!wait_for([&] { return saw_disabled_control.load(); },
+                      std::chrono::seconds(1))) {
+            std::cerr << "disabled control packet was not observed\n";
+            failed = true;
+        }
+        if (!wait_for([&] { return backend.runtime_state().video_available; },
+                      std::chrono::seconds(3))) {
+            std::cerr << "decoded video was not marked available\n";
+            failed = true;
+        }
+        backend.set_ready(true);
         backend.submit_control_input(input);
         if (!wait_for([&] { return saw_enabled_control.load(); },
                       std::chrono::seconds(1))) {
             std::cerr << "enabled control packet was not observed\n";
+            failed = true;
+        }
+        if (!backend.runtime_state().ready) {
+            std::cerr << "READY was not retained with live video\n";
+            failed = true;
+        }
+        allow_video = false;
+        if (!wait_for([&] {
+                const auto state = backend.runtime_state();
+                return !state.video_available && !state.ready &&
+                       state.connection == pip_link::backend::ConnectionState::connected;
+            }, std::chrono::seconds(3))) {
+            std::cerr << "video stall did not clear the frame and exit READY\n";
+            failed = true;
+        }
+        ++video_frame_id;
+        sent_video = false;
+        allow_video = true;
+        if (!wait_for([&] { return backend.runtime_state().video_available; },
+                      std::chrono::seconds(3))) {
+            std::cerr << "video did not resume after a stream-only stall\n";
             failed = true;
         }
         if (!wait_for([&] { return backend.telemetry().decoded_frames > 0; },
@@ -304,13 +361,15 @@ int main() {
         if (!wait_for([&] {
                 return backend.runtime_state().connection ==
                            pip_link::backend::ConnectionState::connected &&
-                       backend.telemetry().decoded_frames > decoded_before_fast_restart;
+                       backend.telemetry().decoded_frames > decoded_before_fast_restart &&
+                       parameter_queries.load() >= 2;
             }, std::chrono::seconds(4))) {
             std::cerr << "video did not recover from a fast air-unit restart\n";
             failed = true;
         }
         if (parameter_queries.load() != 2) {
-            std::cerr << "fast restart did not resynchronize remote parameters\n";
+            std::cerr << "fast restart did not resynchronize remote parameters: "
+                      << parameter_queries.load() << '\n';
             failed = true;
         }
         const int decoded_before_restart = backend.telemetry().decoded_frames;
@@ -335,7 +394,8 @@ int main() {
         }
         if (!wait_for([&] { return parameter_queries.load() == 3; },
                       std::chrono::seconds(1))) {
-            std::cerr << "remote parameters were not queried after reconnect\n";
+            std::cerr << "remote parameters were not queried after reconnect: "
+                      << parameter_queries.load() << '\n';
             failed = true;
         }
         if (!wait_for([&] {

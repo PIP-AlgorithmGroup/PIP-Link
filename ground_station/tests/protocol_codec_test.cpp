@@ -45,16 +45,18 @@ int main() {
     auto control_packet = control(0x12345678U, 42.5, input, true);
     if (!expect(control_packet.size() == 37 && verify_crc(control_packet),
                 "control packet size or CRC mismatch")) return 1;
-    if (!expect(control_packet[5] == 0x78 && control_packet[8] == 0x12 &&
+    if (!expect((control_packet[4] & control_ready_flag) != 0 &&
+                    control_packet[5] == 0x78 && control_packet[8] == 0x12 &&
                     control_packet[27] == 0xFF && control_packet[28] == 0x7F &&
                     control_packet[29] == 0x00 && control_packet[30] == 0x80 &&
                     control_packet[31] == 0x15 && control_packet[32] == 0x7F,
                 "control packet fields mismatch")) return 1;
 
     auto disabled_packet = control(1, 1.0, input, false);
-    if (!expect(std::all_of(disabled_packet.begin() + 17, disabled_packet.begin() + 33,
+    if (!expect((disabled_packet[4] & control_ready_flag) == 0 &&
+                    std::all_of(disabled_packet.begin() + 17, disabled_packet.begin() + 33,
                             [](std::uint8_t value) { return value == 0; }),
-                "disabled control packet must be neutral")) return 1;
+                "disabled control packet must clear READY and be neutral")) return 1;
 
     auto json_packet = parameter_update(9, 3.25, R"({"target_fps":60})");
     if (!expect(json_packet.size() == 38 && verify_crc(json_packet),

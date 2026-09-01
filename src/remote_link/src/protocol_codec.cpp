@@ -55,7 +55,7 @@ int ProtocolCodec::parse_type(const uint8_t* data, size_t len) {
 
 bool ProtocolCodec::parse_control_command(
     const uint8_t* data, size_t len,
-    uint32_t& seq, double& t1,
+    uint32_t& seq, double& t1, bool& is_ready,
     uint8_t keyboard_state[10],
     int16_t& mouse_dx, int16_t& mouse_dy,
     uint8_t& mouse_buttons, int8_t& scroll_delta)
@@ -67,6 +67,7 @@ bool ProtocolCodec::parse_control_command(
 
     seq = read_u32(data + 5);
     t1  = read_f64(data + 9);
+    is_ready = (data[4] & CONTROL_READY_FLAG) != 0;
     std::memcpy(keyboard_state, data + 17, 10);
     mouse_dx      = read_i16(data + 27);
     mouse_dy      = read_i16(data + 29);

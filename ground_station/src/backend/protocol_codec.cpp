@@ -105,6 +105,7 @@ std::vector<std::uint8_t> control(std::uint32_t sequence, double timestamp,
                                   const ControlInput& input, bool enabled) {
     std::vector<std::uint8_t> packet(37);
     write_header(packet.data(), MessageType::control, sequence);
+    if (enabled) packet[4] |= control_ready_flag;
     write_f64(packet.data() + 9, timestamp);
     if (enabled) {
         std::copy(input.keyboard.begin(), input.keyboard.end(), packet.begin() + 17);

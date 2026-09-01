@@ -24,7 +24,7 @@ private:
     void on_frame(sensor_msgs::msg::Image::ConstSharedPtr msg);
 
     void on_command(const std::string& client_ip,
-                    uint32_t seq, double t1,
+                    uint32_t seq, double t1, bool is_ready,
                     const uint8_t kb[10],
                     int16_t mouse_dx, int16_t mouse_dy,
                     uint8_t mouse_buttons, int8_t scroll_delta);

@@ -512,7 +512,7 @@ public:
     void set_connection_state(ConnectionState state) {
         std::lock_guard lock(state_mutex_);
         state_.connection = state;
-        if (state != ConnectionState::connected) ready_ = false;
+        if (state != ConnectionState::connected) state_.ready = false;
         if (state == ConnectionState::disconnected || state == ConnectionState::failed) {
             telemetry_.fps = 0;
             telemetry_.bandwidth_mbps = 0;
@@ -534,7 +534,14 @@ public:
         {
             std::lock_guard lock(frame_mutex_);
             latest_frame_ = {};
+            last_decoded_frame_at_ = {};
             ++frame_generation_;
+        }
+        {
+            std::lock_guard lock(state_mutex_);
+            state_.video_available = false;
+            state_.ready = false;
+            telemetry_.fps = 0;
         }
     }
 
@@ -642,7 +649,7 @@ public:
         }
         {
             std::lock_guard lock(state_mutex_);
-            enabled = ready_;
+            enabled = state_.ready;
         }
         const std::uint32_t sequence = next_sequence();
         send_control_packet(protocol::control(sequence, monotonic_seconds(), input, enabled),
@@ -772,20 +779,22 @@ public:
             }
             const auto now = Clock::now();
             const auto pending = pending_packets_.find(acknowledgment.sequence);
-            if (pending != pending_packets_.end()) {
-                const float round_trip = std::chrono::duration<float, std::milli>(
-                                             now - pending->second.sent_at).count();
-                const float remote_processing = static_cast<float>(std::max(
-                    0.0, acknowledgment.remote_sent_at -
-                             acknowledgment.remote_received_at) * 1000.0);
-                const float latency = std::max(0.0F, round_trip - remote_processing);
-                {
-                    std::lock_guard lock(state_mutex_);
-                    telemetry_.latency_ms = latency;
-                }
-                pending_packets_.erase(pending);
-                ++control_acked_window_;
+            if (pending == pending_packets_.end()) {
+                ++invalid_packets_;
+                continue;
             }
+            const float round_trip = std::chrono::duration<float, std::milli>(
+                                         now - pending->second.sent_at).count();
+            const float remote_processing = static_cast<float>(std::max(
+                0.0, acknowledgment.remote_sent_at -
+                         acknowledgment.remote_received_at) * 1000.0);
+            const float latency = std::max(0.0F, round_trip - remote_processing);
+            {
+                std::lock_guard lock(state_mutex_);
+                telemetry_.latency_ms = latency;
+            }
+            pending_packets_.erase(pending);
+            ++control_acked_window_;
             last_ack_ = now;
             bool became_connected = false;
             {
@@ -1092,6 +1101,26 @@ public:
                     (state.connection == ConnectionState::connected && now - last_ack_ > timeout)) {
                     fail_session("机器人会话超时");
                 }
+                bool video_timed_out = false;
+                {
+                    std::lock_guard lock(frame_mutex_);
+                    if (last_decoded_frame_at_ != Clock::time_point{} &&
+                        now - last_decoded_frame_at_ > 1500ms) {
+                        latest_frame_ = {};
+                        last_decoded_frame_at_ = {};
+                        ++frame_generation_;
+                        video_timed_out = true;
+                    }
+                }
+                if (video_timed_out) {
+                    {
+                        std::lock_guard lock(state_mutex_);
+                        state_.video_available = false;
+                        state_.ready = false;
+                        telemetry_.fps = 0;
+                    }
+                    append_audit("WARN", "视频信号超时，已退出 READY");
+                }
             } else {
                 RuntimeConfig config;
                 std::optional<DeviceInfo> reconnect_device;
@@ -1178,12 +1207,14 @@ public:
             {
                 std::lock_guard lock(frame_mutex_);
                 latest_frame_ = std::move(decoded);
+                last_decoded_frame_at_ = now;
                 ++frame_generation_;
             }
             ++decoded_frames_;
             {
                 std::lock_guard lock(state_mutex_);
                 telemetry_.fps = static_cast<float>(decoded_times.size());
+                state_.video_available = true;
             }
             last_decode_ms_ = std::chrono::duration<float, std::milli>(now - started).count();
             last_encode_ms_ = encoded.encode_ms;
@@ -1572,7 +1603,6 @@ public:
     mutable std::mutex state_mutex_;
     RuntimeState state_{};
     TelemetrySnapshot telemetry_{};
-    bool ready_{};
     mutable std::mutex config_mutex_;
     RuntimeConfig config_{};
     mutable std::mutex audit_mutex_;
@@ -1613,6 +1643,7 @@ public:
     media::FrameDecoder decoder_;
     mutable std::mutex frame_mutex_;
     mutable media::DecodedFrame latest_frame_;
+    Clock::time_point last_decoded_frame_at_{};
     mutable std::uint64_t frame_generation_{};
     mutable std::uint64_t uploaded_generation_{};
     mutable ID3D11Texture2D* video_texture_{};
@@ -1877,10 +1908,11 @@ void GroundStationBackendRuntime::set_ready(bool ready) {
     bool accepted = false;
     {
         std::lock_guard lock(impl_->state_mutex_);
-        accepted = !ready || impl_->state_.connection == ConnectionState::connected;
-        impl_->ready_ = accepted && ready;
+        accepted = !ready || (impl_->state_.connection == ConnectionState::connected &&
+                              impl_->state_.video_available);
+        impl_->state_.ready = accepted && ready;
     }
-    if (!accepted) impl_->append_audit("WARN", "未连接时拒绝进入 READY");
+    if (!accepted) impl_->append_audit("WARN", "控制链路或视频未就绪，拒绝进入 READY");
     else impl_->append_audit("INFO", ready ? "已进入 READY" : "已退出 READY");
 }
 
@@ -2058,12 +2090,7 @@ std::string GroundStationBackendRuntime::execute_console_command(const std::stri
     }
     if (normalized == "status") {
         const auto state = runtime_state();
-        bool ready = false;
         std::string endpoint;
-        {
-            std::lock_guard lock(impl_->state_mutex_);
-            ready = impl_->ready_;
-        }
         {
             std::lock_guard lock(impl_->session_mutex_);
             endpoint = impl_->current_endpoint_.display;
@@ -2071,7 +2098,7 @@ std::string GroundStationBackendRuntime::execute_console_command(const std::stri
         std::ostringstream output;
         output << "connection=" << static_cast<int>(state.connection)
                << " recording=" << static_cast<int>(state.recording)
-               << " ready=" << (ready ? "true" : "false")
+               << " ready=" << (state.ready ? "true" : "false")
                << " endpoint=" << endpoint;
         return output.str();
     }

@@ -13,6 +13,7 @@ public:
     static constexpr size_t   HEADER_SIZE    = 9;
     static constexpr size_t   VIDEO_HDR_SIZE = 20;
     static constexpr size_t   CHUNK_SIZE     = 60000;
+    static constexpr uint8_t  CONTROL_READY_FLAG = 0x01;
 
     // Returns msg_type (0x01~0x07); returns -1 on magic/CRC failure
     static int  parse_type(const uint8_t* data, size_t len);
@@ -20,7 +21,7 @@ public:
 
     static bool parse_control_command(
         const uint8_t* data, size_t len,
-        uint32_t& seq, double& t1,
+        uint32_t& seq, double& t1, bool& is_ready,
         uint8_t  keyboard_state[10],
         int16_t& mouse_dx, int16_t& mouse_dy,
         uint8_t& mouse_buttons, int8_t& scroll_delta);

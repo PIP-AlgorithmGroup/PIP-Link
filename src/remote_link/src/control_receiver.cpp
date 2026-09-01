@@ -107,13 +107,15 @@ void ControlReceiver::handle_control_command(
 {
     uint32_t seq;
     double   t1;
+    bool     is_ready;
     uint8_t  kb[10];
     int16_t  mouse_dx, mouse_dy;
     uint8_t  mouse_buttons;
     int8_t   scroll_delta;
 
     if (!ProtocolCodec::parse_control_command(
-            data, len, seq, t1, kb, mouse_dx, mouse_dy, mouse_buttons, scroll_delta))
+            data, len, seq, t1, is_ready, kb, mouse_dx, mouse_dy,
+            mouse_buttons, scroll_delta))
         return;
 
     double t2 = now_sec();
@@ -121,7 +123,8 @@ void ControlReceiver::handle_control_command(
     if (cmd_cb_) {
         std::string ip;
         { std::lock_guard<std::mutex> lk(client_ip_mutex_); ip = client_ip_; }
-        cmd_cb_(ip, seq, t1, kb, mouse_dx, mouse_dy, mouse_buttons, scroll_delta);
+        cmd_cb_(ip, seq, t1, is_ready, kb, mouse_dx, mouse_dy,
+                mouse_buttons, scroll_delta);
     }
 
     double t3 = now_sec();

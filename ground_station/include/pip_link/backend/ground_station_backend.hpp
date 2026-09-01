@@ -65,6 +65,8 @@ enum class RecordingState {
 struct RuntimeState final {
     ConnectionState connection{ConnectionState::disconnected};
     RecordingState recording{RecordingState::idle};
+    bool ready{};
+    bool video_available{};
     std::uint64_t remote_parameters_revision{};
 };
 

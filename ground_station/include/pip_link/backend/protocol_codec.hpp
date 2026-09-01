@@ -13,6 +13,7 @@ namespace pip_link::backend::protocol {
 
 constexpr std::uint16_t magic = 0xABCD;
 constexpr std::uint8_t version = 1;
+constexpr std::uint8_t control_ready_flag = 0x01U;
 constexpr std::size_t common_header_size = 9;
 constexpr std::size_t video_header_size = 20;
 

@@ -214,6 +214,10 @@ void GroundStationUi::sync_backend_state() {
     const backend::RuntimeState state = backend_.runtime_state();
     connection_state_ = state.connection;
     recording_state_ = state.recording;
+    if (ready_ && !state.ready) {
+        set_feedback(state.video_available ? "后端已退出 READY" : "视频信号中断，已退出 READY");
+    }
+    ready_ = state.ready;
 
     if (state.remote_parameters_revision != remote_parameters_revision_) {
         const backend::BackendPreferences settings = backend_.preferences();
@@ -253,9 +257,11 @@ void GroundStationUi::toggle_ready() {
         set_feedback("尚未连接机器人，不能进入 READY");
         return;
     }
-    ready_ = !ready_;
-    backend_.set_ready(ready_);
-    set_feedback(ready_ ? "已请求进入 READY 状态" : "已请求退出 READY 状态");
+    const bool requested = !ready_;
+    backend_.set_ready(requested);
+    ready_ = backend_.runtime_state().ready;
+    set_feedback(ready_ ? "已进入 READY 状态" :
+                 (requested ? "等待有效视频信号，不能进入 READY" : "已退出 READY 状态"));
 }
 
 void GroundStationUi::submit_control_input() {
