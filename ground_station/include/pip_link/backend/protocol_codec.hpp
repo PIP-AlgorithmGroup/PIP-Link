@@ -16,6 +16,8 @@ constexpr std::uint8_t version = 1;
 constexpr std::uint8_t control_ready_flag = 0x01U;
 constexpr std::size_t common_header_size = 9;
 constexpr std::size_t video_header_size = 20;
+constexpr std::size_t max_video_chunks = 4096;
+constexpr std::size_t max_encoded_frame_size = 16U * 1024U * 1024U;
 
 enum class MessageType : std::uint8_t {
     control = 0x01,

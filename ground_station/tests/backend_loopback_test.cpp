@@ -56,14 +56,17 @@ std::vector<std::uint8_t> acknowledgment(std::uint32_t sequence) {
 std::vector<std::uint8_t> video_chunk(std::uint32_t frame_id,
                                       std::uint16_t total_chunks,
                                       std::uint16_t chunk_index,
-                                      std::span<const std::uint8_t> payload) {
+                                      std::span<const std::uint8_t> payload,
+                                      bool parity = false,
+                                      std::uint16_t original_chunks = 0) {
     std::vector<std::uint8_t> packet(20 + payload.size());
     write_u32(packet.data(), frame_id);
     write_u16(packet.data() + 4, total_chunks);
     write_u16(packet.data() + 6, chunk_index);
     write_u32(packet.data() + 8, static_cast<std::uint32_t>(payload.size()));
-    packet[12] = 0;
-    write_u16(packet.data() + 13, total_chunks);
+    packet[12] = parity ? 1 : 0;
+    write_u16(packet.data() + 13,
+              original_chunks == 0 ? total_chunks : original_chunks);
     packet[15] = 0;
     const float encode_ms = 1.5F;
     std::memcpy(packet.data() + 16, &encode_ms, sizeof(encode_ms));
@@ -175,7 +178,8 @@ int main() {
                     reinterpret_cast<const char*>(buffer.data() + 17),
                     static_cast<std::size_t>(count - 21));
                 if (json.find("\"target_fps\":60") != std::string::npos &&
-                    json.find("\"bitrate\":12000") != std::string::npos) {
+                    json.find("\"bitrate\":12000") != std::string::npos &&
+                    json.find("\"udp_mtu\":576") != std::string::npos) {
                     saw_video_settings = true;
                 }
             }
@@ -200,19 +204,44 @@ int main() {
                     video_client = registered_video_client;
                     video_client_length = registered_video_client_length;
                 }
-                constexpr std::size_t chunk_size = 60000;
+                constexpr std::size_t chunk_size = 552;
                 const std::uint32_t current_frame_id = video_frame_id.fetch_add(1);
                 const std::uint16_t chunks = static_cast<std::uint16_t>(
                     (image.size() + chunk_size - 1) / chunk_size);
+                const std::uint16_t parity_chunks = std::max<std::uint16_t>(
+                    1, static_cast<std::uint16_t>((chunks + 4) / 5));
+                const std::uint16_t total_chunks = chunks + parity_chunks;
+                std::vector<std::vector<std::uint8_t>> parity(
+                    parity_chunks, std::vector<std::uint8_t>(chunk_size, 0));
+                for (std::uint16_t index = 0; index < chunks; ++index) {
+                    const std::size_t offset = static_cast<std::size_t>(index) * chunk_size;
+                    const std::size_t length = std::min(chunk_size, image.size() - offset);
+                    for (std::size_t byte = 0; byte < length; ++byte) {
+                        parity[index % parity_chunks][byte] ^= image[offset + byte];
+                    }
+                }
                 std::vector<std::uint16_t> order;
-                for (std::uint16_t index = 0; index < chunks; ++index) order.push_back(index);
+                for (std::uint16_t index = 1; index < chunks; ++index) order.push_back(index);
                 if (order.size() >= 2) std::swap(order[0], order[1]);
                 for (const std::uint16_t index : order) {
                     const std::size_t offset = static_cast<std::size_t>(index) * chunk_size;
                     const auto packet = video_chunk(
-                        current_frame_id, chunks, index,
+                        current_frame_id, total_chunks, index,
                         std::span<const std::uint8_t>{image}.subspan(
-                            offset, std::min(chunk_size, image.size() - offset)));
+                            offset, std::min(chunk_size, image.size() - offset)),
+                        false, chunks);
+                    sendto(video_server, reinterpret_cast<const char*>(packet.data()),
+                           static_cast<int>(packet.size()), 0,
+                           reinterpret_cast<const sockaddr*>(&video_client),
+                           video_client_length);
+                }
+                for (std::uint16_t group = 0; group < parity_chunks; ++group) {
+                    std::vector<std::uint8_t> payload(4 + chunk_size);
+                    write_u32(payload.data(), static_cast<std::uint32_t>(image.size()));
+                    std::copy(parity[group].begin(), parity[group].end(), payload.begin() + 4);
+                    const auto packet = video_chunk(
+                        current_frame_id, total_chunks,
+                        static_cast<std::uint16_t>(chunks + group), payload, true, chunks);
                     sendto(video_server, reinterpret_cast<const char*>(packet.data()),
                            static_cast<int>(packet.size()), 0,
                            reinterpret_cast<const sockaddr*>(&video_client),
@@ -226,7 +255,7 @@ int main() {
 
     {
         pip_link::backend::GroundStationBackendRuntime backend(nullptr, nullptr, nullptr);
-        backend.apply_connection_settings(250, 1, 1400, true);
+        backend.apply_connection_settings(250, 1, 576, true);
         backend.apply_video_settings(2, 3, 0, 0, 0, 60, 12000, false,
                                      0.2F, 0, 0, 0, 0, true, true);
         backend.connect_device({"Loopback", "127.0.0.1:26000", 100});

@@ -115,5 +115,11 @@ int main() {
                 "video chunk parser mismatch")) return 1;
     chunk[8] = 5;
     if (!expect(!parse_video_chunk(chunk, header, payload), "invalid chunk accepted")) return 1;
+    chunk[8] = 4;
+    write_u16(chunk.data() + 4, 0);
+    if (!expect(!parse_video_chunk(chunk, header, payload), "zero-chunk frame accepted")) return 1;
+    write_u16(chunk.data() + 4, static_cast<std::uint16_t>(max_video_chunks + 1));
+    write_u16(chunk.data() + 13, static_cast<std::uint16_t>(max_video_chunks + 1));
+    if (!expect(!parse_video_chunk(chunk, header, payload), "oversized chunk table accepted")) return 1;
     return 0;
 }

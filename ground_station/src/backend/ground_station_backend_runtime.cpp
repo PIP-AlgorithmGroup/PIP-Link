@@ -258,6 +258,7 @@ struct VideoAssembly final {
     float encode_ms{};
     std::vector<std::vector<std::uint8_t>> chunks;
     std::vector<bool> received;
+    std::size_t received_bytes{};
     Clock::time_point first_seen{Clock::now()};
     Clock::time_point last_nack{};
     int nack_count{};
@@ -292,6 +293,7 @@ public:
         const int winsock_result = WSAStartup(MAKEWORD(2, 2), &winsock_);
         winsock_ready_ = winsock_result == 0;
         load_config();
+        low_latency_ = config_.low_latency;
         load_audit();
         decoder_.set_h264_preference(config_.decoder_index);
         append_audit("INFO", winsock_ready_ ? "地面端后端已启动" : "Winsock 初始化失败");
@@ -687,6 +689,7 @@ public:
         const auto contrast = json_number_field<int>(json, "contrast");
         const auto sharpness = json_number_field<int>(json, "sharpness");
         const auto denoise = json_number_field<int>(json, "denoise");
+        const auto udp_mtu = json_number_field<int>(json, "udp_mtu");
         if (!bitrate || !frame_rate || !jpeg_quality || !encoder || !fec_enabled ||
             !fec_redundancy || !brightness || !contrast || !sharpness || !denoise ||
             (*encoder != "jpeg" && *encoder != "h264") ||
@@ -701,6 +704,7 @@ public:
             *sharpness < 0 || *sharpness > 100 || *denoise < 0 || *denoise > 100) {
             return false;
         }
+        if (udp_mtu && (*udp_mtu < 576 || *udp_mtu > 1500)) return false;
         const auto quality = std::min_element(
             jpeg_quality_levels.begin(), jpeg_quality_levels.end(),
             [jpeg_quality](int left, int right) {
@@ -720,6 +724,7 @@ public:
             config_.contrast = *contrast;
             config_.sharpness = *sharpness;
             config_.denoise = *denoise;
+            if (udp_mtu) config_.mtu = *udp_mtu;
         }
         last_codec_ = static_cast<std::uint8_t>(*encoder == "h264" ? 1 : 0);
         save_config();
@@ -822,9 +827,13 @@ public:
         }
         last_codec_ = codec;
         recorder_.write(codec, encoded);
+        const bool low_latency = low_latency_.load();
         {
             std::lock_guard lock(decode_mutex_);
-            if (decode_queue_.size() >= 2) {
+            if (low_latency && !decode_queue_.empty()) {
+                dropped_frames_ += decode_queue_.size();
+                decode_queue_.clear();
+            } else if (decode_queue_.size() >= 4) {
                 decode_queue_.pop_front();
                 ++dropped_frames_;
             }
@@ -888,8 +897,14 @@ public:
                 continue;
             }
             if (!frame.received[header.chunk_index]) {
+                if (frame.received_bytes + payload.size() > protocol::max_encoded_frame_size) {
+                    assemblies_.erase(iterator);
+                    ++invalid_packets_;
+                    continue;
+                }
                 frame.chunks[header.chunk_index].assign(payload.begin(), payload.end());
                 frame.received[header.chunk_index] = true;
+                frame.received_bytes += payload.size();
             }
             try_complete_frame(header.frame_id, frame);
         }
@@ -900,26 +915,56 @@ public:
         for (std::uint16_t index = 0; index < frame.original_chunks; ++index) {
             if (!frame.received[index]) missing.push_back(index);
         }
-        if (missing.size() == 1 && frame.total_chunks > frame.original_chunks &&
-            frame.received[frame.original_chunks] &&
-            missing.front() == frame.original_chunks - 1) {
-            std::vector<std::uint8_t> recovered = frame.chunks[frame.original_chunks];
-            for (std::uint16_t index = 0; index < frame.original_chunks; ++index) {
-                if (index == missing.front()) continue;
+        const std::uint16_t parity_count = frame.total_chunks - frame.original_chunks;
+        for (std::uint16_t group = 0; group < parity_count && !missing.empty(); ++group) {
+            const std::uint16_t parity_index = frame.original_chunks + group;
+            if (!frame.received[parity_index] || frame.chunks[parity_index].size() < 5) continue;
+            std::vector<std::uint16_t> group_missing;
+            for (std::uint16_t index = group; index < frame.original_chunks;
+                 index = static_cast<std::uint16_t>(index + parity_count)) {
+                if (!frame.received[index]) group_missing.push_back(index);
+            }
+            if (group_missing.size() != 1) continue;
+            const auto& parity = frame.chunks[parity_index];
+            const std::uint32_t frame_size = static_cast<std::uint32_t>(parity[0]) |
+                                             static_cast<std::uint32_t>(parity[1]) << 8U |
+                                             static_cast<std::uint32_t>(parity[2]) << 16U |
+                                             static_cast<std::uint32_t>(parity[3]) << 24U;
+            const std::size_t chunk_size = parity.size() - 4;
+            if (frame_size == 0 || frame_size > protocol::max_encoded_frame_size ||
+                chunk_size == 0 ||
+                (frame_size + chunk_size - 1) / chunk_size != frame.original_chunks) {
+                continue;
+            }
+            const std::uint16_t missing_index = group_missing.front();
+            std::vector<std::uint8_t> recovered(parity.begin() + 4, parity.end());
+            for (std::uint16_t index = group; index < frame.original_chunks;
+                 index = static_cast<std::uint16_t>(index + parity_count)) {
+                if (index == missing_index) continue;
                 const auto& chunk = frame.chunks[index];
-                for (std::size_t byte = 0; byte < std::min(chunk.size(), recovered.size()); ++byte) {
+                for (std::size_t byte = 0; byte < chunk.size(); ++byte) {
                     recovered[byte] ^= chunk[byte];
                 }
             }
-            frame.chunks[missing.front()] = std::move(recovered);
-            frame.received[missing.front()] = true;
-            missing.clear();
+            const std::size_t recovered_size = missing_index + 1 == frame.original_chunks
+                ? frame_size - static_cast<std::size_t>(frame.original_chunks - 1) * chunk_size
+                : chunk_size;
+            recovered.resize(recovered_size);
+            frame.received_bytes += recovered.size();
+            frame.chunks[missing_index] = std::move(recovered);
+            frame.received[missing_index] = true;
+            missing.erase(std::remove(missing.begin(), missing.end(), missing_index), missing.end());
             ++recovered_frames_;
         }
         if (!missing.empty()) return;
         std::size_t size = 0;
         for (std::uint16_t index = 0; index < frame.original_chunks; ++index) {
             size += frame.chunks[index].size();
+        }
+        if (size > protocol::max_encoded_frame_size) {
+            assemblies_.erase(frame_id);
+            ++invalid_packets_;
+            return;
         }
         std::vector<std::uint8_t> encoded;
         encoded.reserve(size);
@@ -1175,8 +1220,15 @@ public:
                 reset_decoder = decoder_reset_requested_;
                 decoder_reset_requested_ = false;
                 if (!decode_queue_.empty()) {
-                    encoded = std::move(decode_queue_.back());
-                    decode_queue_.clear();
+                    const bool low_latency = low_latency_.load();
+                    if (low_latency) {
+                        encoded = std::move(decode_queue_.back());
+                        dropped_frames_ += decode_queue_.size() - 1;
+                        decode_queue_.clear();
+                    } else {
+                        encoded = std::move(decode_queue_.front());
+                        decode_queue_.pop_front();
+                    }
                 }
             }
             if (reset_decoder) {
@@ -1598,6 +1650,7 @@ public:
     WSADATA winsock_{};
     bool winsock_ready_{};
     std::atomic_bool running_{true};
+    std::atomic_bool low_latency_{true};
     std::thread network_thread_;
     std::thread decoder_thread_;
     mutable std::mutex state_mutex_;
@@ -1731,14 +1784,16 @@ void GroundStationBackendRuntime::disconnect_device() { impl_->request_disconnec
 
 void GroundStationBackendRuntime::apply_connection_settings(
     int heartbeat_ms, int reconnect_seconds, int mtu, bool auto_reconnect) {
+    const int udp_mtu = std::clamp(mtu, 576, 1500);
     {
         std::lock_guard lock(impl_->config_mutex_);
         impl_->config_.heartbeat_ms = std::clamp(heartbeat_ms, 250, 5000);
         impl_->config_.reconnect_seconds = std::clamp(reconnect_seconds, 1, 30);
-        impl_->config_.mtu = std::clamp(mtu, 576, 1500);
+        impl_->config_.mtu = udp_mtu;
         impl_->config_.auto_reconnect = auto_reconnect;
     }
     impl_->save_config();
+    impl_->enqueue_parameters("{\"udp_mtu\":" + std::to_string(udp_mtu) + "}");
     impl_->append_audit("INFO", "连接策略已更新");
 }
 
@@ -1759,6 +1814,7 @@ void GroundStationBackendRuntime::apply_video_settings(
     float fec_redundancy, int brightness, int contrast, int sharpness, int denoise,
     bool low_latency, bool vertical_sync) {
     int jpeg_quality = 85;
+    int udp_mtu = 1400;
     {
         std::lock_guard lock(impl_->config_mutex_);
         auto& config = impl_->config_;
@@ -1769,6 +1825,7 @@ void GroundStationBackendRuntime::apply_video_settings(
         }
         config.quality_index = selected_quality;
         jpeg_quality = config.jpeg_quality;
+        udp_mtu = config.mtu;
         config.resolution_index = std::clamp(resolution_index, 0, 5);
         config.window_mode = std::clamp(window_mode, 0, 1);
         config.encoder_index = std::clamp(encoder_index, 0, 1);
@@ -1786,6 +1843,7 @@ void GroundStationBackendRuntime::apply_video_settings(
         config.low_latency = low_latency;
         config.vertical_sync = vertical_sync;
     }
+    impl_->low_latency_ = low_latency;
     std::ostringstream json;
     json << "{\"target_fps\":" << std::clamp(frame_rate, 24, 240)
          << ",\"bitrate\":" << std::clamp(
@@ -1799,7 +1857,10 @@ void GroundStationBackendRuntime::apply_video_settings(
          << ",\"contrast\":" << std::clamp(contrast, -100, 100)
          << ",\"sharpness\":" << std::clamp(sharpness, 0, 100)
          << ",\"denoise\":" << std::clamp(denoise, 0, 100) << '}';
-    impl_->enqueue_parameters(json.str());
+    std::string parameters = json.str();
+    parameters.insert(parameters.size() - 1,
+                      ",\"udp_mtu\":" + std::to_string(udp_mtu));
+    impl_->enqueue_parameters(std::move(parameters));
     impl_->last_codec_ = static_cast<std::uint8_t>(encoder_index == 0 ? 0 : 1);
     impl_->decoder_.set_h264_preference(std::clamp(decoder_index, 0, 2));
     impl_->save_config();

@@ -8,6 +8,7 @@ extern "C" {
 }
 
 #include <chrono>
+#include <algorithm>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/photo.hpp>
@@ -132,6 +133,7 @@ void FrameEncoder::update_config(const EncoderConfig& cfg) {
                                           cfg.fps    != cfg_.fps    ||
                                           cfg.target_bitrate != cfg_.target_bitrate));
     cfg_ = cfg;
+    quality_ = std::clamp(cfg.quality, QUALITY_MIN, QUALITY_MAX);
     target_frame_bytes_ = static_cast<float>(cfg.target_bitrate * 1000) / 8.0f
                         / static_cast<float>(cfg.fps);
     if (need_reinit) {

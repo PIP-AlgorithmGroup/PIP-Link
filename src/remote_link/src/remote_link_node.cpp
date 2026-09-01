@@ -40,6 +40,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     declare_parameter("encoder",             std::string("h264"));
     declare_parameter("fec_enabled",         false);
     declare_parameter("fec_redundancy",      0.2);
+    declare_parameter("udp_mtu",             1400);
     declare_parameter("client_timeout_s",    5.0);
     declare_parameter("debug.verbose",       false);
     declare_parameter("brightness",          0);
@@ -77,6 +78,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     vs_cfg.encoder_cfg.denoise        = get_parameter("denoise").as_int();
     vs_cfg.fec_enabled   = get_parameter("fec_enabled").as_bool();
     vs_cfg.fec_redundancy = static_cast<float>(get_parameter("fec_redundancy").as_double());
+    vs_cfg.udp_mtu = get_parameter("udp_mtu").as_int();
 
     video_tx_ = std::make_unique<VideoSender>(vs_cfg, get_logger());
     video_tx_->start();
@@ -227,6 +229,8 @@ void RemoteLinkNode::on_param_update_from_udp(
             params.emplace_back("fec_enabled", j["fec_enabled"].get<bool>());
         if (j.contains("fec_redundancy"))
             params.emplace_back("fec_redundancy", j["fec_redundancy"].get<double>());
+        if (j.contains("udp_mtu"))
+            params.emplace_back("udp_mtu", j["udp_mtu"].get<int>());
         if (j.contains("brightness"))
             params.emplace_back("brightness", j["brightness"].get<int>());
         if (j.contains("contrast"))
@@ -280,6 +284,9 @@ RemoteLinkNode::on_parameter_change(const std::vector<rclcpp::Parameter>& params
                 return reject("fec_redundancy out of range");
             }
             video_changed = true;
+        } else if (name == "udp_mtu") {
+            if (p.as_int() < 576 || p.as_int() > 1500) return reject("udp_mtu out of range");
+            video_changed = true;
         } else if (name == "brightness" || name == "contrast") {
             if (p.as_int() < -100 || p.as_int() > 100) return reject("image value out of range");
             video_changed = true;
@@ -312,6 +319,7 @@ void RemoteLinkNode::apply_video_config(const std::vector<rclcpp::Parameter>& ch
     cfg.port          = static_cast<uint16_t>(get_parameter("video_port").as_int());
     cfg.fec_enabled   = get_parameter("fec_enabled").as_bool();
     cfg.fec_redundancy = static_cast<float>(get_parameter("fec_redundancy").as_double());
+    cfg.udp_mtu       = get_parameter("udp_mtu").as_int();
     cfg.encoder_cfg.quality        = get_parameter("jpeg_quality").as_int();
     cfg.encoder_cfg.target_bitrate = get_parameter("target_bitrate_kbps").as_int();
     cfg.encoder_cfg.fps            = get_parameter("target_fps").as_int();
@@ -330,6 +338,8 @@ void RemoteLinkNode::apply_video_config(const std::vector<rclcpp::Parameter>& ch
         else if (name == "fec_enabled") cfg.fec_enabled = parameter.as_bool();
         else if (name == "fec_redundancy") {
             cfg.fec_redundancy = static_cast<float>(parameter.as_double());
+        } else if (name == "udp_mtu") {
+            cfg.udp_mtu = parameter.as_int();
         } else if (name == "brightness") cfg.encoder_cfg.brightness = parameter.as_int();
         else if (name == "contrast") cfg.encoder_cfg.contrast = parameter.as_int();
         else if (name == "sharpness") cfg.encoder_cfg.sharpness = parameter.as_int();
@@ -376,6 +386,7 @@ std::string RemoteLinkNode::params_to_json() const {
     j["encoder"]       = get_parameter("encoder").as_string();
     j["fec_enabled"]   = get_parameter("fec_enabled").as_bool();
     j["fec_redundancy"]= get_parameter("fec_redundancy").as_double();
+    j["udp_mtu"]       = get_parameter("udp_mtu").as_int();
     j["brightness"]    = get_parameter("brightness").as_int();
     j["contrast"]      = get_parameter("contrast").as_int();
     j["sharpness"]     = get_parameter("sharpness").as_int();

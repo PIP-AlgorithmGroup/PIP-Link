@@ -199,8 +199,11 @@ bool parse_video_chunk(std::span<const std::uint8_t> packet,
     header.original_chunks = read_u16(packet.data() + 13);
     header.codec = packet[15];
     header.encode_ms = read_f32(packet.data() + 16);
-    if (header.frame_id == 0 || header.total_chunks == 0 || header.original_chunks == 0 ||
+    if (header.frame_id == 0 || header.total_chunks == 0 ||
+        header.total_chunks > max_video_chunks || header.original_chunks == 0 ||
         header.original_chunks > header.total_chunks || header.chunk_index >= header.total_chunks ||
+        header.total_chunks - header.original_chunks > header.original_chunks ||
+        header.parity != (header.chunk_index >= header.original_chunks) ||
         header.chunk_size != packet.size() - video_header_size ||
         header.chunk_size > 60000U) {
         return false;

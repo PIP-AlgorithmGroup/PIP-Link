@@ -8,13 +8,13 @@
 **Goal**: 让 MTU、JPEG 质量、FEC 和低延迟设置具有真实效果，并限制异常分片资源占用。
 **Success Criteria**: 分片大小服从 MTU；JPEG 更新立即生效；FEC 设置与能力一致；接收端拒绝超限帧。
 **Tests**: 协议边界测试、源码契约测试、loopback 小分片测试。
-**Status**: In Progress
+**Status**: Complete
 
 ## Stage 3: 媒体与录像生命周期
 **Goal**: 消除 FFmpeg 管道退出卡死、并发停止和无有效视频仍显示录像的问题。
 **Success Criteria**: 停止可取消且有界；录像启动要求有效码流；编码切换明确失败。
 **Tests**: 媒体管线测试、录像状态回归测试。
-**Status**: Not Started
+**Status**: In Progress
 
 ## Stage 4: 配置、线程与交互完整性
 **Goal**: 校验持久化配置、修复 ROS 参数数据竞争，完成手柄入口和手动端口配置。

@@ -51,6 +51,7 @@ if(PIP_LINK_BUILD_GUI)
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
         GIT_TAG release-3.2.16
         GIT_SHALLOW TRUE
+        GIT_SUBMODULES ""
     )
     FetchContent_MakeAvailable(SDL3)
 
@@ -59,6 +60,7 @@ if(PIP_LINK_BUILD_GUI)
         GIT_REPOSITORY https://github.com/ocornut/imgui.git
         GIT_TAG v1.91.9b
         GIT_SHALLOW TRUE
+        GIT_SUBMODULES ""
     )
     FetchContent_MakeAvailable(imgui)
 

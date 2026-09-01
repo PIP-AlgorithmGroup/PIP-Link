@@ -62,8 +62,8 @@ private:
     int             sws_src_h_{0};
 
     static constexpr float EMA_ALPHA   = 0.3f;
-    static constexpr int   QUALITY_MIN = 15;
-    static constexpr int   QUALITY_MAX = 85;
+    static constexpr int   QUALITY_MIN = 1;
+    static constexpr int   QUALITY_MAX = 100;
 };
 
 }  // namespace remote_link
