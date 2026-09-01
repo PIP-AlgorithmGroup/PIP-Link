@@ -10,7 +10,7 @@ TestFramePublisherNode::TestFramePublisherNode(const rclcpp::NodeOptions& option
     declare_parameter("width",          1280);
     declare_parameter("height",         720);
     declare_parameter("fps",            30);
-    declare_parameter("frame_topic",    std::string("/sending_frame"));
+    declare_parameter("frame_topic",    std::string("/io/video_frame"));
     declare_parameter("stats_interval", 100);
 
     width_          = get_parameter("width").as_int();

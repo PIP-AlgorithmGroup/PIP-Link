@@ -4,6 +4,7 @@
 #include "remote_link/mdns_service.hpp"
 
 #include <std_msgs/msg/string.hpp>
+#include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <nlohmann/json.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <chrono>
@@ -21,6 +22,14 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
 : rclcpp::Node("remote_link", options)
 {
     // --- Declare parameters ---
+    rcl_interfaces::msg::ParameterDescriptor topic_descriptor;
+    topic_descriptor.read_only = true;
+    const auto frame_topic = declare_parameter<std::string>(
+        "frame_topic", "/io/video_frame", topic_descriptor);
+    const auto command_topic = declare_parameter<std::string>(
+        "command_topic", "/remote_command", topic_descriptor);
+    const auto stats_topic = declare_parameter<std::string>(
+        "stats_topic", "/remote_link/stats", topic_descriptor);
     declare_parameter("air_unit_name",       "air_unit_01");
     declare_parameter("mdns.interface_name", "wlP1p1s0");
     declare_parameter("control_port",        6000);
@@ -46,11 +55,11 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
 
     // --- Publisher ---
     cmd_pub_ = create_publisher<pip_msgs::msg::RemoteCommand>(
-        "/remote_command", rclcpp::QoS(10));
+        command_topic, rclcpp::QoS(10));
 
     // --- Subscriber ---
     frame_sub_ = create_subscription<sensor_msgs::msg::Image>(
-        "/sending_frame", qos,
+        frame_topic, qos,
         [this](sensor_msgs::msg::Image::ConstSharedPtr msg) {
             on_frame(msg);
         });
@@ -113,7 +122,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
 
     // --- Stats publisher ---
     stats_pub_ = create_publisher<std_msgs::msg::String>(
-        "/remote_link/stats", rclcpp::QoS(10));
+        stats_topic, rclcpp::QoS(10));
 
     // --- Watchdog timer (2s) ---
     watchdog_timer_ = create_wall_timer(

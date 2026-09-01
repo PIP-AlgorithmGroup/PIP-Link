@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(pip_msgs REQUIRED)
@@ -68,6 +69,7 @@ endif()
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_components
+  rcl_interfaces
   sensor_msgs
   std_msgs
   pip_msgs

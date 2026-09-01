@@ -10,6 +10,14 @@ add_test(
             -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_ros_message_package.cmake
 )
 
+add_test(
+    NAME pip_link_remote_frame_topic_test
+    COMMAND ${CMAKE_COMMAND}
+            -DREMOTE_LINK_NODE_SOURCE=${CMAKE_SOURCE_DIR}/src/remote_link/src/remote_link_node.cpp
+            -DTEST_FRAME_NODE_SOURCE=${CMAKE_SOURCE_DIR}/src/test_frame_publisher/src/test_frame_publisher_node.cpp
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_remote_frame_topic.cmake
+)
+
 if(TARGET pip_link_desktop)
     add_executable(pip_link_protocol_codec_test protocol_codec_test.cpp)
     target_link_libraries(pip_link_protocol_codec_test PRIVATE pip_link_desktop)
