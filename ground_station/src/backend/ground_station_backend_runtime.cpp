@@ -44,6 +44,10 @@ constexpr std::uint16_t default_control_port = 6000;
 constexpr std::uint16_t default_video_port = 5000;
 constexpr std::size_t max_audit_entries = 10000;
 constexpr std::array<int, 4> jpeg_quality_levels{55, 70, 85, 95};
+constexpr int minimum_video_bitrate_kbps = 100;
+constexpr int maximum_video_bitrate_kbps = 80000;
+constexpr float minimum_fec_redundancy = 0.0F;
+constexpr float maximum_fec_redundancy = 1.0F;
 
 template <typename T>
 void release(T*& pointer) noexcept {
@@ -660,10 +664,12 @@ public:
         if (!bitrate || !frame_rate || !jpeg_quality || !encoder || !fec_enabled ||
             !fec_redundancy || !brightness || !contrast || !sharpness || !denoise ||
             (*encoder != "jpeg" && *encoder != "h264") ||
-            *bitrate < 1000 || *bitrate > 80000 ||
+            *bitrate < minimum_video_bitrate_kbps ||
+            *bitrate > maximum_video_bitrate_kbps ||
             *frame_rate < 24 || *frame_rate > 240 ||
             *jpeg_quality < 1 || *jpeg_quality > 100 ||
-            *fec_redundancy < 0.05F || *fec_redundancy > 0.5F ||
+            *fec_redundancy < minimum_fec_redundancy ||
+            *fec_redundancy > maximum_fec_redundancy ||
             *brightness < -100 || *brightness > 100 ||
             *contrast < -100 || *contrast > 100 ||
             *sharpness < 0 || *sharpness > 100 || *denoise < 0 || *denoise > 100) {
@@ -1687,9 +1693,11 @@ void GroundStationBackendRuntime::apply_video_settings(
         config.encoder_index = std::clamp(encoder_index, 0, 1);
         config.decoder_index = std::clamp(decoder_index, 0, 2);
         config.frame_rate = std::clamp(frame_rate, 24, 240);
-        config.bitrate_kbps = std::clamp(bitrate_kbps, 1000, 80000);
+        config.bitrate_kbps = std::clamp(
+            bitrate_kbps, minimum_video_bitrate_kbps, maximum_video_bitrate_kbps);
         config.fec_enabled = fec_enabled;
-        config.fec_redundancy = std::clamp(fec_redundancy, 0.05F, 0.5F);
+        config.fec_redundancy = std::clamp(
+            fec_redundancy, minimum_fec_redundancy, maximum_fec_redundancy);
         config.brightness = std::clamp(brightness, -100, 100);
         config.contrast = std::clamp(contrast, -100, 100);
         config.sharpness = std::clamp(sharpness, 0, 100);
@@ -1699,11 +1707,13 @@ void GroundStationBackendRuntime::apply_video_settings(
     }
     std::ostringstream json;
     json << "{\"target_fps\":" << std::clamp(frame_rate, 24, 240)
-         << ",\"bitrate\":" << std::clamp(bitrate_kbps, 1000, 80000)
+         << ",\"bitrate\":" << std::clamp(
+                bitrate_kbps, minimum_video_bitrate_kbps, maximum_video_bitrate_kbps)
          << ",\"jpeg_quality\":" << jpeg_quality
          << ",\"encoder\":\"" << (encoder_index == 0 ? "jpeg" : "h264")
          << "\",\"fec_enabled\":" << (fec_enabled ? "true" : "false")
-         << ",\"fec_redundancy\":" << std::clamp(fec_redundancy, 0.05F, 0.5F)
+         << ",\"fec_redundancy\":" << std::clamp(
+                fec_redundancy, minimum_fec_redundancy, maximum_fec_redundancy)
          << ",\"brightness\":" << std::clamp(brightness, -100, 100)
          << ",\"contrast\":" << std::clamp(contrast, -100, 100)
          << ",\"sharpness\":" << std::clamp(sharpness, 0, 100)

@@ -144,7 +144,7 @@ int main() {
                 ++parameter_queries;
                 const auto response = pip_link::backend::protocol::parameter_update(
                     sequence, 1.0,
-                    R"({"bitrate":8000,"target_fps":48,"jpeg_quality":95,"encoder":"jpeg","fec_enabled":true,"fec_redundancy":0.3,"brightness":10,"contrast":-5,"sharpness":20,"denoise":15})");
+                    R"({"bitrate":800,"target_fps":30,"jpeg_quality":95,"encoder":"jpeg","fec_enabled":false,"fec_redundancy":1.0,"brightness":23,"contrast":100,"sharpness":0,"denoise":0})");
                 sendto(server, reinterpret_cast<const char*>(response.data()),
                        static_cast<int>(response.size()), 0,
                        reinterpret_cast<const sockaddr*>(&from), from_length);
@@ -231,13 +231,13 @@ int main() {
         }
         if (!wait_for([&] {
                 const auto preferences = backend.preferences();
-                return parameter_queries.load() == 1 && preferences.frame_rate == 48 &&
-                       preferences.bitrate_kbps == 8000 && preferences.quality_index == 3 &&
+                return parameter_queries.load() == 1 && preferences.frame_rate == 30 &&
+                       preferences.bitrate_kbps == 800 && preferences.quality_index == 3 &&
                        preferences.jpeg_quality == 95 &&
                        preferences.encoder_index == 0 &&
-                       preferences.fec_enabled && preferences.fec_redundancy == 0.3F &&
-                       preferences.brightness == 10 && preferences.contrast == -5 &&
-                       preferences.sharpness == 20 && preferences.denoise == 15;
+                       !preferences.fec_enabled && preferences.fec_redundancy == 1.0F &&
+                       preferences.brightness == 23 && preferences.contrast == 100 &&
+                       preferences.sharpness == 0 && preferences.denoise == 0;
             }, std::chrono::seconds(1))) {
             std::cerr << "remote video settings were not queried and synchronized\n";
             failed = true;

@@ -27,7 +27,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     const auto frame_topic = declare_parameter<std::string>(
         "frame_topic", "/io/video_frame", topic_descriptor);
     const auto command_topic = declare_parameter<std::string>(
-        "command_topic", "/remote_command", topic_descriptor);
+        "command_topic", "/io/remote_command", topic_descriptor);
     const auto stats_topic = declare_parameter<std::string>(
         "stats_topic", "/remote_link/stats", topic_descriptor);
     declare_parameter("air_unit_name",       "air_unit_01");
@@ -262,7 +262,7 @@ RemoteLinkNode::on_parameter_change(const std::vector<rclcpp::Parameter>& params
             if (p.as_int() < 24 || p.as_int() > 240) return reject("target_fps out of range");
             video_changed = true;
         } else if (name == "target_bitrate_kbps") {
-            if (p.as_int() < 1000 || p.as_int() > 80000) {
+            if (p.as_int() < 100 || p.as_int() > 80000) {
                 return reject("target_bitrate_kbps out of range");
             }
             video_changed = true;
@@ -275,7 +275,7 @@ RemoteLinkNode::on_parameter_change(const std::vector<rclcpp::Parameter>& params
             }
             video_changed = true;
         } else if (name == "fec_redundancy") {
-            if (p.as_double() < 0.05 || p.as_double() > 0.5) {
+            if (p.as_double() < 0.0 || p.as_double() > 1.0) {
                 return reject("fec_redundancy out of range");
             }
             video_changed = true;

@@ -438,14 +438,14 @@ void GroundStationUi::draw_video_page(float scale) {
         queue_video_settings(false);
     if (ImGui::IsItemDeactivatedAfterEdit()) queue_video_settings(true);
     ImGui::SetNextItemWidth(300.0F * scale);
-    if (ImGui::SliderInt("目标码率", &bitrate_kbps_, 1000, 80000, "%d kbps"))
+    if (ImGui::SliderInt("目标码率", &bitrate_kbps_, 100, 80000, "%d kbps"))
         queue_video_settings(false);
     if (ImGui::IsItemDeactivatedAfterEdit()) queue_video_settings(true);
     if (toggle_switch("低延迟模式", &low_latency_)) queue_video_settings(true);
     if (toggle_switch("前向纠错 (FEC)", &fec_enabled_)) queue_video_settings(true);
     if (fec_enabled_) {
         ImGui::SetNextItemWidth(300.0F * scale);
-        if (ImGui::SliderFloat("FEC 冗余", &fec_redundancy_, 0.05F, 0.50F, "%.2f"))
+        if (ImGui::SliderFloat("FEC 冗余", &fec_redundancy_, 0.0F, 1.0F, "%.2f"))
             queue_video_settings(false);
         if (ImGui::IsItemDeactivatedAfterEdit()) queue_video_settings(true);
     }
