@@ -1,5 +1,7 @@
 #include "pip_link/ui/ground_station_ui.hpp"
 
+#include "pip_link/core/smooth_scroll.hpp"
+
 #include <imgui.h>
 
 #include <algorithm>
@@ -618,13 +620,8 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
         scroll_target -= ImGui::GetIO().MouseWheel * 100.0F * scale;
     }
     scroll_target = std::clamp(scroll_target, 0.0F, ImGui::GetScrollMaxY());
-    const float difference = scroll_target - ImGui::GetScrollY();
-    if (std::abs(difference) > 0.5F) {
-        ImGui::SetScrollY(ImGui::GetScrollY() +
-                          difference * (1.0F - std::exp(-delta_seconds / 0.08F)));
-    } else {
-        ImGui::SetScrollY(scroll_target);
-    }
+    ImGui::SetScrollY(core::advance_smooth_scroll(
+        ImGui::GetScrollY(), scroll_target, delta_seconds, scale));
     ImGui::EndChild();
     ImGui::PopStyleVar();
     ImGui::PopStyleColor();
@@ -694,11 +691,8 @@ void GroundStationUi::draw_settings_tabs(float delta_seconds, float scale) {
         tab_scroll_target_ -= ImGui::GetIO().MouseWheel * 100.0F * scale;
     }
     tab_scroll_target_ = std::clamp(tab_scroll_target_, 0.0F, ImGui::GetScrollMaxX());
-    const float difference = tab_scroll_target_ - ImGui::GetScrollX();
-    ImGui::SetScrollX(std::abs(difference) > 0.5F
-                          ? ImGui::GetScrollX() +
-                                difference * (1.0F - std::exp(-delta_seconds / 0.08F))
-                          : tab_scroll_target_);
+    ImGui::SetScrollX(core::advance_smooth_scroll(
+        ImGui::GetScrollX(), tab_scroll_target_, delta_seconds, scale));
     ImGui::EndChild();
     ImGui::PopStyleVar();
 }
@@ -715,9 +709,18 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
     ImGui::SetNextWindowSize({viewport->WorkSize.x, console_height_});
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha,
                         std::clamp(console_height_ / (290.0F * scale), 0.0F, 1.0F));
-    ImGui::PushStyleColor(ImGuiCol_WindowBg, {0.025F, 0.030F, 0.042F, 0.98F});
-    ImGui::PushStyleColor(ImGuiCol_Text, {0.88F, 0.92F, 0.97F, 1.0F});
-    ImGui::PushStyleColor(ImGuiCol_TextDisabled, {0.62F, 0.69F, 0.75F, 1.0F});
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, {0.94F, 0.96F, 0.97F, 0.99F});
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.99F, 1.00F, 1.00F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_Text, text_primary);
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, {0.30F, 0.37F, 0.43F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_Border, {0.57F, 0.66F, 0.71F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_Separator, {0.62F, 0.70F, 0.75F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, {0.82F, 0.88F, 0.91F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, {0.75F, 0.84F, 0.88F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_FrameBgActive, {0.68F, 0.80F, 0.85F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_Button, {0.82F, 0.88F, 0.91F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, {0.71F, 0.82F, 0.87F, 1.00F});
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.62F, 0.77F, 0.83F, 1.00F});
     constexpr ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
@@ -730,18 +733,15 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
     ImGui::SameLine();
     if (ImGui::SmallButton("关闭")) console_open_ = false;
     ImGui::Separator();
-    ImGui::BeginChild("##ConsoleOutput", {0.0F, -38.0F * scale}, ImGuiChildFlags_None,
+    ImGui::BeginChild("##ConsoleOutput", {0.0F, -38.0F * scale}, ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     for (const auto& line : console_lines_) ImGui::TextUnformatted(line.c_str());
     if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel != 0.0F) {
         console_scroll_target_ -= ImGui::GetIO().MouseWheel * 100.0F * scale;
     }
     console_scroll_target_ = std::clamp(console_scroll_target_, 0.0F, ImGui::GetScrollMaxY());
-    const float difference = console_scroll_target_ - ImGui::GetScrollY();
-    ImGui::SetScrollY(std::abs(difference) > 0.5F
-                          ? ImGui::GetScrollY() +
-                                difference * (1.0F - std::exp(-delta_seconds / 0.08F))
-                          : console_scroll_target_);
+    ImGui::SetScrollY(core::advance_smooth_scroll(
+        ImGui::GetScrollY(), console_scroll_target_, delta_seconds, scale));
     ImGui::EndChild();
     ImGui::SetNextItemWidth(-1.0F);
     if (ImGui::InputText("##ConsoleCommand", console_command_.data(), console_command_.size(),
@@ -759,7 +759,7 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
         }
     }
     ImGui::End();
-    ImGui::PopStyleColor(3);
+    ImGui::PopStyleColor(12);
     ImGui::PopStyleVar();
 }
 

@@ -1,5 +1,7 @@
 #include "pip_link/ui/ground_station_ui.hpp"
 
+#include "pip_link/core/smooth_scroll.hpp"
+
 #include "pip_link/core/input_validation.hpp"
 
 #include <imgui.h>
@@ -383,12 +385,8 @@ void GroundStationUi::draw_connection_page(float scale) {
             nested_scroll_consumed_ = true;
         }
         device_scroll_target_ = std::clamp(device_scroll_target_, 0.0F, device_scroll_max);
-        const float device_scroll_difference = device_scroll_target_ - ImGui::GetScrollY();
-        ImGui::SetScrollY(std::abs(device_scroll_difference) > 0.5F
-                              ? ImGui::GetScrollY() +
-                                    device_scroll_difference *
-                                        (1.0F - std::exp(-ImGui::GetIO().DeltaTime / 0.08F))
-                              : device_scroll_target_);
+        ImGui::SetScrollY(core::advance_smooth_scroll(
+            ImGui::GetScrollY(), device_scroll_target_, ImGui::GetIO().DeltaTime, scale));
         ImGui::EndChild();
         ImGui::PopStyleColor();
         ImGui::BeginDisabled(selected_device_ < 0 || connected_);

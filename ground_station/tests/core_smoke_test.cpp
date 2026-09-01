@@ -1,7 +1,9 @@
 #include "pip_link/core/build_info.hpp"
 #include "pip_link/core/debounced_action.hpp"
 #include "pip_link/core/input_validation.hpp"
+#include "pip_link/core/smooth_scroll.hpp"
 
+#include <array>
 #include <iostream>
 
 int main() {
@@ -54,6 +56,19 @@ int main() {
         pip_link::core::is_valid_directory("\t")) {
         std::cerr << "Directory validation is invalid.\n";
         return 1;
+    }
+
+    for (const int frame_rate : std::array{30, 60, 144}) {
+        float scroll_position = 0.0F;
+        const int frame_count = (frame_rate * 3 + 9) / 10;
+        for (int frame = 0; frame < frame_count; ++frame) {
+            scroll_position = pip_link::core::advance_smooth_scroll(
+                scroll_position, 100.0F, 1.0F / static_cast<float>(frame_rate));
+        }
+        if (scroll_position != 100.0F) {
+            std::cerr << "Smooth scrolling still has a frame-rate-dependent settling tail.\n";
+            return 1;
+        }
     }
     return 0;
 }
