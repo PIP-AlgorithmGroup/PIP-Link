@@ -125,6 +125,8 @@ int main() {
     std::atomic_int parameter_queries{0};
     std::atomic_bool sent_video{false};
     std::atomic_bool allow_video{false};
+    std::atomic_bool air_unit_online{true};
+    std::atomic_uint32_t video_frame_id{42};
     std::mutex video_client_mutex;
     sockaddr_in registered_video_client{};
     int registered_video_client_length{};
@@ -139,6 +141,7 @@ int main() {
                                        reinterpret_cast<sockaddr*>(&from), &from_length);
             if (count == SOCKET_ERROR) continue;
             if (count < 13 || buffer[0] != 0xCD || buffer[1] != 0xAB) continue;
+            if (!air_unit_online) continue;
             const std::uint32_t sequence = read_u32(buffer.data() + 5);
             if (buffer[3] == 0x03) {
                 ++parameter_queries;
@@ -178,6 +181,7 @@ int main() {
                 registered_video_client = video_client;
                 registered_video_client_length = video_client_length;
                 has_video_client = true;
+                sent_video = false;
             }
             if (allow_video && has_video_client && !sent_video) {
                 {
@@ -194,7 +198,7 @@ int main() {
                 for (const std::uint16_t index : order) {
                     const std::size_t offset = static_cast<std::size_t>(index) * chunk_size;
                     const auto packet = video_chunk(
-                        1, chunks, index,
+                        video_frame_id.load(), chunks, index,
                         std::span<const std::uint8_t>{image}.subspan(
                             offset, std::min(chunk_size, image.size() - offset)));
                     sendto(video_server, reinterpret_cast<const char*>(packet.data()),
@@ -209,7 +213,7 @@ int main() {
 
     {
         pip_link::backend::GroundStationBackendRuntime backend(nullptr, nullptr, nullptr);
-        backend.apply_connection_settings(250, 1, 1400, false);
+        backend.apply_connection_settings(250, 1, 1400, true);
         backend.apply_video_settings(2, 3, 0, 0, 0, 60, 12000, false,
                                      0.2F, 0, 0, 0, 0, true, true);
         backend.connect_device({"Loopback", "127.0.0.1:26000", 100});
@@ -286,6 +290,58 @@ int main() {
         }
         if (!has_screenshot || !has_recording) {
             std::cerr << "screenshot or raw recording output is missing\n";
+            failed = true;
+        }
+        const int decoded_before_fast_restart = backend.telemetry().decoded_frames;
+        allow_video = false;
+        air_unit_online = false;
+        has_video_client = false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        video_frame_id = 1;
+        sent_video = false;
+        air_unit_online = true;
+        allow_video = true;
+        if (!wait_for([&] {
+                return backend.runtime_state().connection ==
+                           pip_link::backend::ConnectionState::connected &&
+                       backend.telemetry().decoded_frames > decoded_before_fast_restart;
+            }, std::chrono::seconds(4))) {
+            std::cerr << "video did not recover from a fast air-unit restart\n";
+            failed = true;
+        }
+        if (parameter_queries.load() != 2) {
+            std::cerr << "fast restart did not resynchronize remote parameters\n";
+            failed = true;
+        }
+        const int decoded_before_restart = backend.telemetry().decoded_frames;
+        allow_video = false;
+        air_unit_online = false;
+        if (!wait_for([&] {
+                return backend.runtime_state().connection ==
+                       pip_link::backend::ConnectionState::failed;
+            }, std::chrono::seconds(4))) {
+            std::cerr << "air-unit loss was not detected\n";
+            failed = true;
+        }
+        sent_video = false;
+        air_unit_online = true;
+        allow_video = true;
+        if (!wait_for([&] {
+                return backend.runtime_state().connection ==
+                       pip_link::backend::ConnectionState::connected;
+            }, std::chrono::seconds(5))) {
+            std::cerr << "automatic reconnect did not restore the control session\n";
+            failed = true;
+        }
+        if (!wait_for([&] { return parameter_queries.load() == 3; },
+                      std::chrono::seconds(1))) {
+            std::cerr << "remote parameters were not queried after reconnect\n";
+            failed = true;
+        }
+        if (!wait_for([&] {
+                return backend.telemetry().decoded_frames > decoded_before_restart;
+            }, std::chrono::seconds(4))) {
+            std::cerr << "video did not resume after automatic reconnect\n";
             failed = true;
         }
         backend.disconnect_device();

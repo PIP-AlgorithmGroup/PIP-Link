@@ -48,6 +48,7 @@ constexpr int minimum_video_bitrate_kbps = 100;
 constexpr int maximum_video_bitrate_kbps = 80000;
 constexpr float minimum_fec_redundancy = 0.0F;
 constexpr float maximum_fec_redundancy = 1.0F;
+constexpr auto video_sequence_reset_timeout = 750ms;
 
 template <typename T>
 void release(T*& pointer) noexcept {
@@ -519,6 +520,24 @@ public:
         }
     }
 
+    void reset_video_stream() {
+        assemblies_.clear();
+        last_completed_frame_ = 0;
+        last_completed_frame_at_ = {};
+        {
+            std::lock_guard lock(decode_mutex_);
+            ++media_session_generation_;
+            decode_queue_.clear();
+            decoder_reset_requested_ = true;
+        }
+        decode_cv_.notify_one();
+        {
+            std::lock_guard lock(frame_mutex_);
+            latest_frame_ = {};
+            ++frame_generation_;
+        }
+    }
+
     void close_session() {
         if (control_socket_ != INVALID_SOCKET) {
             closesocket(control_socket_);
@@ -529,7 +548,7 @@ public:
             video_socket_ = INVALID_SOCKET;
         }
         pending_packets_.clear();
-        assemblies_.clear();
+        reset_video_stream();
     }
 
     bool open_session(const DeviceInfo& device) {
@@ -786,6 +805,7 @@ public:
     void enqueue_encoded_frame(std::uint32_t frame_id, std::uint8_t codec,
                                float encode_ms, std::vector<std::uint8_t> encoded) {
         last_completed_frame_ = frame_id;
+        last_completed_frame_at_ = Clock::now();
         for (auto iterator = assemblies_.begin(); iterator != assemblies_.end() &&
              iterator->first < frame_id;) {
             iterator = assemblies_.erase(iterator);
@@ -799,7 +819,8 @@ public:
                 decode_queue_.pop_front();
                 ++dropped_frames_;
             }
-            decode_queue_.push_back({codec, encode_ms, std::move(encoded)});
+            decode_queue_.push_back(
+                {media_session_generation_, codec, encode_ms, std::move(encoded)});
         }
         decode_cv_.notify_one();
         const auto ack = protocol::video_ack(frame_id);
@@ -830,7 +851,16 @@ public:
             }
             video_bytes_window_ += static_cast<std::uint64_t>(received);
             ++video_packets_window_;
-            if (header.frame_id <= last_completed_frame_) continue;
+            if (header.frame_id <= last_completed_frame_) {
+                const auto now = Clock::now();
+                if (last_completed_frame_at_ == Clock::time_point{} ||
+                    now - last_completed_frame_at_ < video_sequence_reset_timeout) {
+                    continue;
+                }
+                reset_video_stream();
+                append_audit("INFO", "检测到机器人视频会话重启，正在重新同步");
+                send_parameter_query();
+            }
             auto [iterator, inserted] = assemblies_.try_emplace(header.frame_id);
             VideoAssembly& frame = iterator->second;
             if (inserted) {
@@ -1095,6 +1125,7 @@ public:
     }
 
     struct EncodedFrame final {
+        std::uint64_t session_generation{};
         std::uint8_t codec{};
         float encode_ms{};
         std::vector<std::uint8_t> bytes;
@@ -1105,13 +1136,25 @@ public:
         std::deque<Clock::time_point> decoded_times;
         while (running_) {
             EncodedFrame encoded;
+            bool reset_decoder = false;
             {
                 std::unique_lock lock(decode_mutex_);
-                decode_cv_.wait(lock, [this] { return !running_ || !decode_queue_.empty(); });
+                decode_cv_.wait(lock, [this] {
+                    return !running_ || decoder_reset_requested_ || !decode_queue_.empty();
+                });
                 if (!running_ && decode_queue_.empty()) break;
-                encoded = std::move(decode_queue_.back());
-                decode_queue_.clear();
+                reset_decoder = decoder_reset_requested_;
+                decoder_reset_requested_ = false;
+                if (!decode_queue_.empty()) {
+                    encoded = std::move(decode_queue_.back());
+                    decode_queue_.clear();
+                }
             }
+            if (reset_decoder) {
+                decoder_.reset();
+                decoded_times.clear();
+            }
+            if (encoded.bytes.empty()) continue;
             media::DecodedFrame decoded;
             std::string error;
             const auto started = Clock::now();
@@ -1123,6 +1166,10 @@ public:
                 continue;
             }
             if (decoded.bgra.empty()) continue;
+            {
+                std::lock_guard lock(decode_mutex_);
+                if (encoded.session_generation != media_session_generation_) continue;
+            }
             const auto now = Clock::now();
             decoded_times.push_back(now);
             while (!decoded_times.empty() && now - decoded_times.front() > 1s) {
@@ -1556,10 +1603,13 @@ public:
     std::deque<std::string> parameter_updates_;
     std::map<std::uint32_t, VideoAssembly> assemblies_;
     std::uint32_t last_completed_frame_{};
+    Clock::time_point last_completed_frame_at_{};
     std::atomic_uint8_t last_codec_{1};
     mutable std::mutex decode_mutex_;
     std::condition_variable decode_cv_;
     std::deque<EncodedFrame> decode_queue_;
+    std::uint64_t media_session_generation_{};
+    bool decoder_reset_requested_{};
     media::FrameDecoder decoder_;
     mutable std::mutex frame_mutex_;
     mutable media::DecodedFrame latest_frame_;
