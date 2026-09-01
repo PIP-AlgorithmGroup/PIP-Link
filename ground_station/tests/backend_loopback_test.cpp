@@ -301,9 +301,9 @@ int main() {
             failed = true;
         }
         backend.start_recording(output_directory.string(), 2, 85, 0);
-        if (backend.runtime_state().recording !=
+        if (backend.runtime_state().recording ==
             pip_link::backend::RecordingState::recording) {
-            std::cerr << "raw stream recording did not start\n";
+            std::cerr << "recording started before a live video stream\n";
             failed = true;
         }
         allow_video = true;
@@ -325,6 +325,12 @@ int main() {
         if (!wait_for([&] { return backend.runtime_state().video_available; },
                       std::chrono::seconds(3))) {
             std::cerr << "decoded video was not marked available\n";
+            failed = true;
+        }
+        backend.start_recording(output_directory.string(), 2, 85, 0);
+        if (backend.runtime_state().recording !=
+            pip_link::backend::RecordingState::recording) {
+            std::cerr << "raw stream recording did not start after video became live\n";
             failed = true;
         }
         backend.set_ready(true);

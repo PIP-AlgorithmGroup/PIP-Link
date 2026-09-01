@@ -305,6 +305,7 @@ public:
         running_ = false;
         request_cv_.notify_all();
         decode_cv_.notify_all();
+        if (decoder_thread_.joinable()) CancelSynchronousIo(decoder_thread_.native_handle());
         stop_discovery();
         if (network_thread_.joinable()) network_thread_.join();
         if (decoder_thread_.joinable()) decoder_thread_.join();
@@ -523,6 +524,7 @@ public:
     }
 
     void reset_video_stream() {
+        if (decoder_thread_.joinable()) CancelSynchronousIo(decoder_thread_.native_handle());
         assemblies_.clear();
         last_completed_frame_ = 0;
         last_completed_frame_at_ = {};
@@ -1979,11 +1981,18 @@ void GroundStationBackendRuntime::set_ready(bool ready) {
 
 void GroundStationBackendRuntime::start_recording(
     const std::string& directory, int format_index, int quality, int split_minutes) {
+    bool video_ready = false;
     {
         std::lock_guard lock(impl_->state_mutex_);
         if (impl_->state_.recording == RecordingState::recording ||
             impl_->state_.recording == RecordingState::starting) return;
-        impl_->state_.recording = RecordingState::starting;
+        video_ready = impl_->state_.connection == ConnectionState::connected &&
+                      impl_->state_.video_available;
+        if (video_ready) impl_->state_.recording = RecordingState::starting;
+    }
+    if (!video_ready) {
+        impl_->append_audit("WARN", "没有有效视频码流，拒绝开始录像");
+        return;
     }
     {
         std::lock_guard lock(impl_->config_mutex_);

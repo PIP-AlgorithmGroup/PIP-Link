@@ -793,7 +793,8 @@ public:
     bool start(const std::filesystem::path& directory, int format_index, int quality,
                int split_minutes, std::uint8_t codec, int frame_rate,
                std::string& error) {
-        stop();
+        std::lock_guard lifecycle_lock(lifecycle_mutex_);
+        stop_unlocked();
         std::error_code filesystem_error;
         std::filesystem::create_directories(directory, filesystem_error);
         if (filesystem_error) {
@@ -825,11 +826,13 @@ public:
             output_path_ = directory / filename;
             SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
             HANDLE read_pipe = nullptr;
-            if (!CreatePipe(&read_pipe, &stdin_write_, &security, 1024 * 1024)) {
+            HANDLE write_pipe = nullptr;
+            if (!CreatePipe(&read_pipe, &write_pipe, &security, 1024 * 1024)) {
                 error = win32_error("无法创建 FFmpeg 输入管道");
                 return false;
             }
-            SetHandleInformation(stdin_write_, HANDLE_FLAG_INHERIT, 0);
+            stdin_write_.store(write_pipe);
+            SetHandleInformation(write_pipe, HANDLE_FLAG_INHERIT, 0);
             HANDLE null_output = CreateFileW(L"NUL", GENERIC_WRITE,
                                               FILE_SHARE_READ | FILE_SHARE_WRITE, &security,
                                               OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -865,8 +868,7 @@ public:
             CloseHandle(read_pipe);
             if (null_output != INVALID_HANDLE_VALUE) CloseHandle(null_output);
             if (!created) {
-                CloseHandle(stdin_write_);
-                stdin_write_ = nullptr;
+                CloseHandle(stdin_write_.exchange(nullptr));
                 error = win32_error("无法启动 FFmpeg");
                 return false;
             }
@@ -877,8 +879,13 @@ public:
     }
 
     void write(std::uint8_t codec, std::span<const std::uint8_t> frame) {
-        if (!running_ || codec != codec_) return;
+        if (!running_) return;
+        if (codec != codec_) {
+            fail("视频编码格式已变化，录像已停止");
+            return;
+        }
         std::lock_guard lock(mutex_);
+        if (!running_) return;
         if (queue_.size() >= 120) queue_.pop_front();
         queue_.emplace_back(frame.begin(), frame.end());
         condition_.notify_one();
@@ -890,28 +897,38 @@ public:
             {
                 std::unique_lock lock(mutex_);
                 condition_.wait(lock, [this] { return !running_ || !queue_.empty(); });
-                if (queue_.empty() && !running_) break;
+                if (queue_.empty() && !running_) {
+                    writer_busy_ = false;
+                    drained_.notify_all();
+                    break;
+                }
                 frame = std::move(queue_.front());
                 queue_.pop_front();
+                writer_busy_ = true;
             }
             if (raw_file_) {
                 raw_file_.write(reinterpret_cast<const char*>(frame.data()),
                                 static_cast<std::streamsize>(frame.size()));
                 if (!raw_file_) fail("写入原始码流失败");
-            } else if (stdin_write_ != nullptr) {
+            } else if (const HANDLE input = stdin_write_.load(); input != nullptr) {
                 std::size_t offset = 0;
                 while (offset < frame.size()) {
                     DWORD written = 0;
                     const DWORD count = static_cast<DWORD>(std::min<std::size_t>(
                         frame.size() - offset, std::numeric_limits<DWORD>::max()));
-                    if (!WriteFile(stdin_write_, frame.data() + offset, count, &written, nullptr) ||
+                    if (!WriteFile(input, frame.data() + offset, count, &written, nullptr) ||
                         written == 0) {
-                        fail(win32_error("FFmpeg 管道写入失败"));
+                        if (running_) fail(win32_error("FFmpeg 管道写入失败"));
                         break;
                     }
                     offset += written;
                 }
             }
+            {
+                std::lock_guard lock(mutex_);
+                writer_busy_ = false;
+            }
+            drained_.notify_all();
         }
     }
 
@@ -922,17 +939,31 @@ public:
     }
 
     void stop() {
-        if (running_.exchange(false)) {
-            condition_.notify_all();
-            if (writer_.joinable()) writer_.join();
-        } else if (writer_.joinable()) {
-            writer_.join();
+        std::lock_guard lifecycle_lock(lifecycle_mutex_);
+        stop_unlocked();
+    }
+
+    void stop_unlocked() {
+        running_ = false;
+        condition_.notify_all();
+        bool drained = true;
+        {
+            std::unique_lock lock(mutex_);
+            drained = drained_.wait_for(lock, std::chrono::milliseconds(500),
+                                        [this] { return queue_.empty() && !writer_busy_; });
+            if (!drained) queue_.clear();
+        }
+        if (!drained && writer_.joinable()) {
+            CancelSynchronousIo(writer_.native_handle());
+            if (const HANDLE input = stdin_write_.exchange(nullptr); input != nullptr) {
+                CloseHandle(input);
+            }
+        }
+        if (writer_.joinable()) writer_.join();
+        if (const HANDLE input = stdin_write_.exchange(nullptr); input != nullptr) {
+            CloseHandle(input);
         }
         raw_file_.close();
-        if (stdin_write_ != nullptr) {
-            CloseHandle(stdin_write_);
-            stdin_write_ = nullptr;
-        }
         if (process_.hProcess != nullptr) {
             if (WaitForSingleObject(process_.hProcess, 5000) == WAIT_TIMEOUT) {
                 TerminateProcess(process_.hProcess, 1);
@@ -942,8 +973,6 @@ public:
             CloseHandle(process_.hProcess);
             process_ = {};
         }
-        std::lock_guard lock(mutex_);
-        queue_.clear();
     }
 
     bool healthy() const {
@@ -957,13 +986,16 @@ public:
     }
 
     std::atomic_bool running_{false};
+    std::mutex lifecycle_mutex_;
     std::uint8_t codec_{};
     mutable std::mutex mutex_;
     std::condition_variable condition_;
+    std::condition_variable drained_;
     std::deque<std::vector<std::uint8_t>> queue_;
     std::thread writer_;
+    bool writer_busy_{};
     std::ofstream raw_file_;
-    HANDLE stdin_write_{nullptr};
+    std::atomic<HANDLE> stdin_write_{nullptr};
     PROCESS_INFORMATION process_{};
     bool failed_{false};
     std::string error_;

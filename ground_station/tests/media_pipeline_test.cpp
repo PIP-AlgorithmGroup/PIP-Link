@@ -100,6 +100,17 @@ int main(int argc, char** argv) {
         std::cerr << "raw recorder output mismatch\n";
         return 1;
     }
+    pip_link::backend::media::StreamRecorder codec_guard;
+    if (!codec_guard.start(output_directory, 2, 85, 0, 0, 30, error)) {
+        std::cerr << "codec guard recorder start failed: " << error << '\n';
+        return 1;
+    }
+    codec_guard.write(1, encoded);
+    if (codec_guard.healthy()) {
+        std::cerr << "recorder ignored a stream codec change\n";
+        return 1;
+    }
+    codec_guard.stop();
     std::filesystem::remove_all(output_directory, error_code);
     return 0;
 }
