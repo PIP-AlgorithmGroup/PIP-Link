@@ -235,7 +235,6 @@ int DesktopWindow::run() {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
-    io.ConfigInputTextCursorBlink = false;
     io.IniFilename = nullptr;
 
     impl_->display_scale = std::clamp(SDL_GetWindowDisplayScale(impl_->window), 1.0F, 2.5F);
