@@ -581,10 +581,6 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
     draw_settings_tabs(delta_seconds, scale);
     ImGui::Dummy({0.0F, 8.0F * scale});
 
-    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.93F, 0.95F, 0.97F, 0.0F});
-    ImGui::BeginChild("##SettingsContent", {0.0F, -40.0F * scale},
-                      ImGuiChildFlags_None,
-                      ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar);
     ImGui::SetWindowFontScale(1.52F);
     ImGui::TextUnformatted(tabs[active_settings_tab_].title);
     ImGui::SetWindowFontScale(1.0F);
@@ -593,6 +589,12 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
     ImGui::Separator();
     ImGui::Spacing();
 
+    char content_id[32]{};
+    std::snprintf(content_id, sizeof(content_id), "##SettingsContent%d", active_settings_tab_);
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.93F, 0.95F, 0.97F, 0.0F});
+    ImGui::BeginChild(content_id, {0.0F, -40.0F * scale},
+                      ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoScrollbar);
     nested_scroll_consumed_ = false;
     switch (active_settings_tab_) {
         case 0: draw_connection_page(scale); break;
@@ -604,19 +606,21 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
         case 6: draw_interface_page(scale); break;
         default: break;
     }
+    ImGui::Dummy({0.0F, 18.0F * scale});
 
+    float& scroll_target = settings_scroll_targets_[static_cast<std::size_t>(active_settings_tab_)];
     if (!nested_scroll_consumed_ &&
         ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) &&
         ImGui::GetIO().MouseWheel != 0.0F) {
-        settings_scroll_target_ -= ImGui::GetIO().MouseWheel * 100.0F * scale;
+        scroll_target -= ImGui::GetIO().MouseWheel * 100.0F * scale;
     }
-    settings_scroll_target_ = std::clamp(settings_scroll_target_, 0.0F, ImGui::GetScrollMaxY());
-    const float difference = settings_scroll_target_ - ImGui::GetScrollY();
+    scroll_target = std::clamp(scroll_target, 0.0F, ImGui::GetScrollMaxY());
+    const float difference = scroll_target - ImGui::GetScrollY();
     if (std::abs(difference) > 0.5F) {
         ImGui::SetScrollY(ImGui::GetScrollY() +
                           difference * (1.0F - std::exp(-delta_seconds / 0.08F)));
     } else {
-        ImGui::SetScrollY(settings_scroll_target_);
+        ImGui::SetScrollY(scroll_target);
     }
     ImGui::EndChild();
     ImGui::PopStyleColor();
@@ -640,6 +644,7 @@ void GroundStationUi::draw_settings(float delta_seconds, float scale) {
 void GroundStationUi::draw_settings_tabs(float delta_seconds, float scale) {
     ImGui::BeginChild("##SettingsTabs", {0.0F, 48.0F * scale}, ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar | ImGuiWindowFlags_NoScrollbar);
+    ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 3.0F * scale);
     for (int index = 0; index < static_cast<int>(tabs.size()); ++index) {
         if (index > 0) ImGui::SameLine(0.0F, 8.0F * scale);
         const ImVec2 origin = ImGui::GetCursorScreenPos();
@@ -652,7 +657,6 @@ void GroundStationUi::draw_settings_tabs(float delta_seconds, float scale) {
         ImGui::PopID();
         if (clicked) {
             active_settings_tab_ = index;
-            settings_scroll_target_ = 0.0F;
         }
         const float target = hovered ? 1.0F : 0.0F;
         tab_hover_[index] += (target - tab_hover_[index]) *

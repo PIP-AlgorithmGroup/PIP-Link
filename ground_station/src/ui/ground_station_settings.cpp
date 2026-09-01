@@ -374,12 +374,15 @@ void GroundStationUi::draw_connection_page(float scale) {
             }
             ImGui::EndTable();
         }
-        if (ImGui::IsWindowHovered() && ImGui::GetIO().MouseWheel != 0.0F) {
-            device_scroll_target_ -= ImGui::GetIO().MouseWheel * 100.0F * scale;
+        const float device_scroll_max = ImGui::GetScrollMaxY();
+        const float device_wheel = ImGui::GetIO().MouseWheel;
+        if (ImGui::IsWindowHovered() && device_wheel != 0.0F &&
+            ((device_wheel > 0.0F && device_scroll_target_ > 0.0F) ||
+             (device_wheel < 0.0F && device_scroll_target_ < device_scroll_max))) {
+            device_scroll_target_ -= device_wheel * 100.0F * scale;
             nested_scroll_consumed_ = true;
         }
-        device_scroll_target_ =
-            std::clamp(device_scroll_target_, 0.0F, ImGui::GetScrollMaxY());
+        device_scroll_target_ = std::clamp(device_scroll_target_, 0.0F, device_scroll_max);
         const float device_scroll_difference = device_scroll_target_ - ImGui::GetScrollY();
         ImGui::SetScrollY(std::abs(device_scroll_difference) > 0.5F
                               ? ImGui::GetScrollY() +
@@ -828,6 +831,12 @@ void GroundStationUi::draw_audit_page(float scale) {
             ImGui::TableNextColumn();
             ImGui::TextColored(text_secondary, "%s",
                                entries.empty() ? "暂无日志记录" : "没有匹配的日志记录");
+        }
+        const float audit_wheel = ImGui::GetIO().MouseWheel;
+        if (ImGui::IsWindowHovered() && audit_wheel != 0.0F &&
+            ((audit_wheel > 0.0F && ImGui::GetScrollY() > 0.0F) ||
+             (audit_wheel < 0.0F && ImGui::GetScrollY() < ImGui::GetScrollMaxY()))) {
+            nested_scroll_consumed_ = true;
         }
         ImGui::EndTable();
     }

@@ -105,7 +105,7 @@ private:
     float mouse_indicator_x_{0.0F};
     float mouse_indicator_y_{0.0F};
     float console_height_{0.0F};
-    float settings_scroll_target_{0.0F};
+    std::array<float, 7> settings_scroll_targets_{};
     float tab_scroll_target_{0.0F};
     float console_scroll_target_{0.0F};
     float device_scroll_target_{0.0F};
