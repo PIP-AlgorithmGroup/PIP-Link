@@ -126,7 +126,6 @@ GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backe
     show_performance_graph_ = settings.show_performance_graph;
     show_debug_info_ = settings.show_debug_info;
     verbose_log_ = settings.verbose_log;
-    simulation_mode_ = settings.simulation_mode;
     gamepad_deadzone_ = settings.gamepad_deadzone;
     gamepad_vibration_ = settings.gamepad_vibration;
     recording_format_ = settings.recording_format;

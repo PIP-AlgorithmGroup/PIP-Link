@@ -74,7 +74,6 @@ private:
     bool show_performance_graph_{true};
     bool show_debug_info_{false};
     bool verbose_log_{false};
-    bool simulation_mode_{false};
     bool gamepad_vibration_{true};
     bool about_open_{false};
     bool display_confirmation_open_{false};

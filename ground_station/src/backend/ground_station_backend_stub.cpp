@@ -48,7 +48,7 @@ void GroundStationBackendStub::apply_control_settings(float, bool, bool, bool) {
 
 void GroundStationBackendStub::apply_interface_settings(float, float, bool, bool, bool, int) {}
 
-void GroundStationBackendStub::apply_diagnostics_settings(bool, bool, bool, bool) {}
+void GroundStationBackendStub::apply_diagnostics_settings(bool, bool, bool) {}
 
 void GroundStationBackendStub::set_ready(bool) {}
 

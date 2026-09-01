@@ -16,7 +16,6 @@
 #include <array>
 #include <atomic>
 #include <chrono>
-#include <cmath>
 #include <condition_variable>
 #include <cctype>
 #include <deque>
@@ -343,9 +342,7 @@ public:
                     config_.show_debug_info = std::stoi(value) != 0;
                 } else if (key == "verbose_log") {
                     config_.verbose_log = std::stoi(value) != 0;
-                }
-                else if (key == "simulation_mode") config_.simulation_mode = std::stoi(value) != 0;
-                else if (key == "gamepad_deadzone") config_.gamepad_deadzone = std::stof(value);
+                } else if (key == "gamepad_deadzone") config_.gamepad_deadzone = std::stof(value);
                 else if (key == "gamepad_vibration") {
                     config_.gamepad_vibration = std::stoi(value) != 0;
                 } else if (key == "recording_format") {
@@ -421,7 +418,6 @@ public:
                << "show_performance_graph=" << copy.show_performance_graph << '\n'
                << "show_debug_info=" << copy.show_debug_info << '\n'
                << "verbose_log=" << copy.verbose_log << '\n'
-               << "simulation_mode=" << copy.simulation_mode << '\n'
                << "gamepad_deadzone=" << copy.gamepad_deadzone << '\n'
                << "gamepad_vibration=" << copy.gamepad_vibration << '\n'
                << "recording_format=" << copy.recording_format << '\n'
@@ -840,35 +836,20 @@ public:
         const double elapsed = std::chrono::duration<double>(now - statistics_at_).count();
         if (elapsed < 1.0) return;
         TelemetrySnapshot snapshot;
-        bool simulation = false;
-        {
-            std::lock_guard lock(config_mutex_);
-            simulation = config_.simulation_mode;
-        }
         {
             std::lock_guard lock(state_mutex_);
             snapshot = telemetry_;
-            if (simulation && state_.connection != ConnectionState::connected) {
-                const float phase = static_cast<float>(monotonic_seconds());
-                snapshot.fps = 60.0F + std::sin(phase * 1.7F) * 2.0F;
-                snapshot.latency_ms = 18.0F + std::sin(phase * 0.9F) * 4.0F;
-                snapshot.packet_loss_percent = 0.2F +
-                                               (std::sin(phase * 0.5F) + 1.0F) * 0.15F;
-                snapshot.bandwidth_mbps = 11.5F + std::sin(phase * 1.2F) * 0.8F;
-                snapshot.decoded_frames += static_cast<int>(snapshot.fps * elapsed);
-            } else {
-                if (state_.connection != ConnectionState::connected) snapshot.fps = 0;
-                snapshot.bandwidth_mbps = static_cast<float>(
-                    static_cast<double>(video_bytes_window_) * 8.0 / elapsed / 1'000'000.0);
-                snapshot.packet_loss_percent = control_sent_window_ == 0
-                                                   ? 0.0F
-                                                   : 100.0F * static_cast<float>(
-                                                         control_sent_window_ -
-                                                         std::min(control_sent_window_,
-                                                                  control_acked_window_)) /
-                                                         static_cast<float>(control_sent_window_);
-                snapshot.decoded_frames = static_cast<int>(decoded_frames_);
-            }
+            if (state_.connection != ConnectionState::connected) snapshot.fps = 0;
+            snapshot.bandwidth_mbps = static_cast<float>(
+                static_cast<double>(video_bytes_window_) * 8.0 / elapsed / 1'000'000.0);
+            snapshot.packet_loss_percent = control_sent_window_ == 0
+                                               ? 0.0F
+                                               : 100.0F * static_cast<float>(
+                                                     control_sent_window_ -
+                                                     std::min(control_sent_window_,
+                                                              control_acked_window_)) /
+                                                     static_cast<float>(control_sent_window_);
+            snapshot.decoded_frames = static_cast<int>(decoded_frames_);
             telemetry_ = snapshot;
         }
         video_bytes_window_ = 0;
@@ -1629,17 +1610,14 @@ void GroundStationBackendRuntime::apply_interface_settings(
 }
 
 void GroundStationBackendRuntime::apply_diagnostics_settings(
-    bool show_performance_graph, bool show_debug_info, bool verbose_log,
-    bool simulation_mode) {
+    bool show_performance_graph, bool show_debug_info, bool verbose_log) {
     {
         std::lock_guard lock(impl_->config_mutex_);
         impl_->config_.show_performance_graph = show_performance_graph;
         impl_->config_.show_debug_info = show_debug_info;
         impl_->config_.verbose_log = verbose_log;
-        impl_->config_.simulation_mode = simulation_mode;
     }
     impl_->save_config();
-    impl_->append_audit("INFO", simulation_mode ? "模拟诊断已启用" : "模拟诊断已关闭");
 }
 
 void GroundStationBackendRuntime::set_ready(bool ready) {

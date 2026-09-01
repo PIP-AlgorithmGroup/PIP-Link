@@ -775,11 +775,9 @@ void GroundStationUi::draw_diagnostics_page(float scale) {
     diagnostics_changed |= toggle_switch("显示原始调试信息", &show_debug_info_);
     if (tools_wide) ImGui::SameLine();
     diagnostics_changed |= toggle_switch("详细日志", &verbose_log_);
-    if (tools_wide) ImGui::SameLine();
-    diagnostics_changed |= toggle_switch("后端模拟数据", &simulation_mode_);
     if (diagnostics_changed) {
         backend_.apply_diagnostics_settings(show_performance_graph_, show_debug_info_,
-                                             verbose_log_, simulation_mode_);
+                                             verbose_log_);
         set_feedback("诊断显示与后端选项已立即生效");
     }
     if (secondary_button("清空性能曲线", 160.0F * scale)) {

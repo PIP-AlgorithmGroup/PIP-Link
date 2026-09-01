@@ -104,7 +104,6 @@ struct BackendPreferences final {
     bool show_performance_graph{true};
     bool show_debug_info{};
     bool verbose_log{};
-    bool simulation_mode{};
     float gamepad_deadzone{0.15F};
     bool gamepad_vibration{true};
     int recording_format{};
@@ -152,8 +151,7 @@ public:
                                           bool show_ready, int language_index) = 0;
     virtual void apply_diagnostics_settings(bool show_performance_graph,
                                             bool show_debug_info,
-                                            bool verbose_log,
-                                            bool simulation_mode) = 0;
+                                            bool verbose_log) = 0;
     virtual void set_ready(bool ready) = 0;
     virtual void start_recording(const std::string& directory, int format_index,
                                  int quality, int split_minutes) = 0;
@@ -203,8 +201,7 @@ public:
                                   bool show_ready, int language_index) override;
     void apply_diagnostics_settings(bool show_performance_graph,
                                     bool show_debug_info,
-                                    bool verbose_log,
-                                    bool simulation_mode) override;
+                                    bool verbose_log) override;
     void set_ready(bool ready) override;
     void start_recording(const std::string& directory, int format_index,
                          int quality, int split_minutes) override;
@@ -260,8 +257,7 @@ public:
                                   bool show_ready, int language_index) override;
     void apply_diagnostics_settings(bool show_performance_graph,
                                     bool show_debug_info,
-                                    bool verbose_log,
-                                    bool simulation_mode) override;
+                                    bool verbose_log) override;
     void set_ready(bool ready) override;
     void start_recording(const std::string& directory, int format_index,
                          int quality, int split_minutes) override;
