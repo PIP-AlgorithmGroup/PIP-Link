@@ -1,6 +1,9 @@
 #include "pip_link/core/build_info.hpp"
 #include "pip_link/core/debounced_action.hpp"
 #include "pip_link/core/input_validation.hpp"
+#include "pip_link/core/log_tail.hpp"
+#include "pip_link/core/media_output_path.hpp"
+#include "pip_link/core/periodic_sampler.hpp"
 #include "pip_link/core/smooth_scroll.hpp"
 
 #include <array>
@@ -57,6 +60,14 @@ int main() {
         std::cerr << "Directory validation is invalid.\n";
         return 1;
     }
+    const std::filesystem::path videos = "C:/Users/test/Videos";
+    if (pip_link::core::resolve_media_output_directory("recordings", videos) !=
+            videos / "recordings" ||
+        pip_link::core::resolve_media_output_directory("D:/Captures", videos) !=
+            std::filesystem::path{"D:/Captures"}) {
+        std::cerr << "Relative media paths still depend on the process working directory.\n";
+        return 1;
+    }
 
     for (const int frame_rate : std::array{30, 60, 144}) {
         float scroll_position = 0.0F;
@@ -69,6 +80,38 @@ int main() {
             std::cerr << "Smooth scrolling still has a frame-rate-dependent settling tail.\n";
             return 1;
         }
+    }
+
+    for (const int frame_rate : std::array{30, 60, 144, 240}) {
+        pip_link::core::PeriodicSampler sampler{0.1F};
+        int samples = 0;
+        for (int frame = 0; frame < frame_rate; ++frame) {
+            if (sampler.tick(1.0F / static_cast<float>(frame_rate))) ++samples;
+        }
+        if (samples < 9 || samples > 10) {
+            std::cerr << "Diagnostic sampling rate depends on render frame rate.\n";
+            return 1;
+        }
+    }
+
+    pip_link::core::LogTail tail;
+    tail.sync(20, 180.0F);
+    if (tail.target() != 180.0F || !tail.following()) {
+        std::cerr << "Initial log entries did not follow the bottom.\n";
+        return 1;
+    }
+    tail.on_wheel(1.0F, 180.0F);
+    tail.sync(21, 220.0F);
+    if (tail.target() == 220.0F || tail.following()) {
+        std::cerr << "Log tail pulled the user away from historical entries.\n";
+        return 1;
+    }
+    tail.on_wheel(-1.0F, 220.0F);
+    tail.set_target(220.0F, 220.0F);
+    tail.sync(22, 250.0F);
+    if (tail.target() != 250.0F || !tail.following()) {
+        std::cerr << "New log entries did not resume bottom following.\n";
+        return 1;
     }
     return 0;
 }
