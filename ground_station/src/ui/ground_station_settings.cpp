@@ -306,7 +306,8 @@ void GroundStationUi::draw_connection_page(float scale) {
 
     ImGui::Dummy({0.0F, layout.gap});
     begin_card("Discovery", {0.0F, 310.0F * scale});
-    section_title("发现与连接", "使用 mDNS 扫描，也可以直接输入机器人地址");
+    section_title("发现与连接",
+                  "mDNS 自动扫描；手动连接请填写机载日志中的 ctrl 控制端口");
     const bool discovery_wide = ImGui::GetContentRegionAvail().x >= 980.0F * scale;
     bool scan_clicked = false;
     bool direct_connect_clicked = false;
@@ -330,7 +331,7 @@ void GroundStationUi::draw_connection_page(float scale) {
         ImGui::SetNextItemWidth(std::max(160.0F * scale,
             ImGui::GetContentRegionAvail().x - connect_button_width -
             ImGui::GetStyle().ItemSpacing.x));
-        ImGui::InputTextWithHint("##ManualAddress", "IP:端口", manual_address_.data(),
+        ImGui::InputTextWithHint("##ManualAddress", "IP:控制端口（ctrl）", manual_address_.data(),
                                  manual_address_.size());
         ImGui::SameLine();
         ImGui::BeginDisabled(is_connected() || connection_busy());
@@ -350,7 +351,7 @@ void GroundStationUi::draw_connection_page(float scale) {
     }
     if (direct_connect_clicked) {
         if (!core::is_valid_endpoint(manual_address_.data())) {
-            set_feedback("机器人地址格式无效，请使用 IP:端口");
+            set_feedback("地址格式无效，请使用 IP:控制端口（ctrl）");
         } else {
             backend_.connect_device({"手动地址", manual_address_.data(), 0});
             set_feedback("手动连接请求已发送，等待后端确认");

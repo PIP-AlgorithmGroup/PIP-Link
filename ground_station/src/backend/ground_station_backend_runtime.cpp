@@ -1133,20 +1133,16 @@ public:
         local.sin_family = AF_INET;
         local.sin_addr.s_addr = htonl(INADDR_ANY);
         local.sin_port = htons(5353);
-        if (bind(socket_handle, reinterpret_cast<const sockaddr*>(&local), sizeof(local)) ==
-            SOCKET_ERROR) {
+        const bool bound_to_mdns =
+            bind(socket_handle, reinterpret_cast<const sockaddr*>(&local), sizeof(local)) !=
+            SOCKET_ERROR;
+        if (!bound_to_mdns) {
             local.sin_port = 0;
             if (bind(socket_handle, reinterpret_cast<const sockaddr*>(&local), sizeof(local)) ==
                 SOCKET_ERROR) {
                 closesocket(socket_handle);
                 return;
             }
-        } else {
-            ip_mreq membership{};
-            inet_pton(AF_INET, "224.0.0.251", &membership.imr_multiaddr);
-            membership.imr_interface.s_addr = htonl(INADDR_ANY);
-            setsockopt(socket_handle, IPPROTO_IP, IP_ADD_MEMBERSHIP,
-                       reinterpret_cast<const char*>(&membership), sizeof(membership));
         }
         set_nonblocking(socket_handle);
         std::vector<std::uint8_t> query(12, 0);
@@ -1158,9 +1154,61 @@ public:
         multicast.sin_family = AF_INET;
         multicast.sin_port = htons(5353);
         inet_pton(AF_INET, "224.0.0.251", &multicast.sin_addr);
-        sendto(socket_handle, reinterpret_cast<const char*>(query.data()),
-               static_cast<int>(query.size()), 0,
-               reinterpret_cast<const sockaddr*>(&multicast), sizeof(multicast));
+        std::array<INTERFACE_INFO, 64> interfaces{};
+        DWORD interface_bytes = 0;
+        bool query_sent = false;
+        std::set<u_long> queried_addresses;
+        if (WSAIoctl(socket_handle, SIO_GET_INTERFACE_LIST, nullptr, 0,
+                     interfaces.data(), static_cast<DWORD>(sizeof(interfaces)),
+                     &interface_bytes, nullptr, nullptr) == 0) {
+            const std::size_t interface_count =
+                interface_bytes / sizeof(INTERFACE_INFO);
+            for (std::size_t index = 0; index < interface_count; ++index) {
+                const auto& interface_info = interfaces[index];
+                if ((interface_info.iiFlags & IFF_UP) == 0 ||
+                    (interface_info.iiFlags & IFF_LOOPBACK) != 0 ||
+                    (interface_info.iiFlags & IFF_MULTICAST) == 0) {
+                    continue;
+                }
+                const auto* interface_address =
+                    reinterpret_cast<const sockaddr_in*>(&interface_info.iiAddress);
+                const in_addr address = interface_address->sin_addr;
+                if (address.s_addr == htonl(INADDR_ANY) ||
+                    !queried_addresses.insert(address.s_addr).second) {
+                    continue;
+                }
+                if (bound_to_mdns) {
+                    ip_mreq membership{};
+                    membership.imr_multiaddr = multicast.sin_addr;
+                    membership.imr_interface = address;
+                    setsockopt(socket_handle, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                               reinterpret_cast<const char*>(&membership),
+                               sizeof(membership));
+                }
+                if (setsockopt(socket_handle, IPPROTO_IP, IP_MULTICAST_IF,
+                               reinterpret_cast<const char*>(&address), sizeof(address)) ==
+                    SOCKET_ERROR) {
+                    continue;
+                }
+                query_sent |= sendto(socket_handle,
+                                     reinterpret_cast<const char*>(query.data()),
+                                     static_cast<int>(query.size()), 0,
+                                     reinterpret_cast<const sockaddr*>(&multicast),
+                                     sizeof(multicast)) != SOCKET_ERROR;
+            }
+        }
+        if (!query_sent) {
+            if (bound_to_mdns) {
+                ip_mreq membership{};
+                membership.imr_multiaddr = multicast.sin_addr;
+                membership.imr_interface.s_addr = htonl(INADDR_ANY);
+                setsockopt(socket_handle, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                           reinterpret_cast<const char*>(&membership), sizeof(membership));
+            }
+            sendto(socket_handle, reinterpret_cast<const char*>(query.data()),
+                   static_cast<int>(query.size()), 0,
+                   reinterpret_cast<const sockaddr*>(&multicast), sizeof(multicast));
+        }
 
         struct ServiceRecord final {
             std::string instance;
