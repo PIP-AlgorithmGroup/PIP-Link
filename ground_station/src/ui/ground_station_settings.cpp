@@ -76,6 +76,115 @@ float animated_hover(ImGuiID id, bool hovered) {
     return value;
 }
 
+bool animated_combo(const char* label, int* current_item,
+                    const char* const items[], int item_count) {
+    if (item_count <= 0) return false;
+    *current_item = std::clamp(*current_item, 0, item_count - 1);
+
+    ImGui::PushID(label);
+    const float width = ImGui::CalcItemWidth();
+    const float height = ImGui::GetFrameHeight();
+    const ImVec2 origin = ImGui::GetCursorScreenPos();
+    const ImGuiID combo_id = ImGui::GetID("##AnimatedCombo");
+    const bool clicked = ImGui::InvisibleButton("##AnimatedCombo", {width, height});
+    const bool hovered = ImGui::IsItemHovered();
+    const float hover = animated_hover(combo_id, hovered);
+    if (clicked) ImGui::OpenPopup("##ComboPopup");
+
+    const ImVec4 base = ImGui::GetStyleColorVec4(ImGuiCol_FrameBg);
+    const ImVec4 over = ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered);
+    const ImVec4 fill{
+        base.x + (over.x - base.x) * hover,
+        base.y + (over.y - base.y) * hover,
+        base.z + (over.z - base.z) * hover,
+        base.w,
+    };
+    ImDrawList* draw = ImGui::GetWindowDrawList();
+    draw->AddRectFilled(origin, {origin.x + width, origin.y + height},
+                        ImGui::GetColorU32(fill), ImGui::GetStyle().FrameRounding);
+    draw->AddRect(origin, {origin.x + width, origin.y + height},
+                  ImGui::GetColorU32(ImGuiCol_Border), ImGui::GetStyle().FrameRounding);
+    const ImVec2 preview_size = ImGui::CalcTextSize(items[*current_item]);
+    draw->PushClipRect({origin.x + 8.0F, origin.y},
+                       {origin.x + width - 28.0F, origin.y + height}, true);
+    draw->AddText({origin.x + 10.0F,
+                   origin.y + (height - preview_size.y) * 0.5F},
+                  ImGui::GetColorU32(ImGuiCol_Text), items[*current_item]);
+    draw->PopClipRect();
+    const ImVec2 arrow_center{origin.x + width - 14.0F, origin.y + height * 0.5F};
+    draw->AddTriangleFilled({arrow_center.x - 4.0F, arrow_center.y - 2.0F},
+                            {arrow_center.x + 4.0F, arrow_center.y - 2.0F},
+                            {arrow_center.x, arrow_center.y + 3.0F},
+                            ImGui::GetColorU32(ImGuiCol_TextDisabled));
+
+    const std::string_view label_view{label};
+    const std::size_t marker = label_view.find("##");
+    if (marker != 0) {
+        const std::string_view visible = marker == std::string_view::npos
+                                             ? label_view : label_view.substr(0, marker);
+        ImGui::SameLine();
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(visible.data(), visible.data() + visible.size());
+    }
+
+    bool changed = false;
+    const float step_height = ImGui::GetTextLineHeight() + 8.0F;
+    const float full_height = step_height * static_cast<float>(item_count) + 8.0F;
+    ImGuiStorage* storage = ImGui::GetStateStorage();
+    const ImGuiID height_id = combo_id ^ 0x4C5B1E29U;
+    float popup_height = storage->GetFloat(height_id, 0.0F);
+    const bool popup_open = ImGui::IsPopupOpen("##ComboPopup");
+    const float target_height = popup_open ? full_height : 0.0F;
+    popup_height += (target_height - popup_height) *
+                    (1.0F - std::exp(-std::min(ImGui::GetIO().DeltaTime, 0.1F) / 0.06F));
+    if (std::abs(popup_height - target_height) < 0.5F) popup_height = target_height;
+    storage->SetFloat(height_id, popup_height);
+
+    if (popup_open) {
+        ImGui::SetNextWindowPos({origin.x, origin.y + height + 2.0F});
+        ImGui::SetNextWindowSize({width, std::max(2.0F, popup_height)});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0F, 4.0F});
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0.0F, 0.0F});
+        if (ImGui::BeginPopup("##ComboPopup",
+                              ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar |
+                                  ImGuiWindowFlags_NoScrollWithMouse)) {
+            for (int index = 0; index < item_count; ++index) {
+                ImGui::PushID(index);
+                const ImVec2 item_origin = ImGui::GetCursorScreenPos();
+                const ImGuiID item_id = ImGui::GetID("##ComboItem");
+                const bool selected = index == *current_item;
+                const bool item_clicked = ImGui::InvisibleButton(
+                    "##ComboItem", {ImGui::GetContentRegionAvail().x, step_height});
+                const float item_hover = animated_hover(item_id, ImGui::IsItemHovered());
+                const float background_alpha = selected ? 0.13F : 0.08F * item_hover;
+                if (background_alpha > 0.001F) {
+                    draw = ImGui::GetWindowDrawList();
+                    draw->AddRectFilled(
+                        {item_origin.x + 4.0F, item_origin.y + 1.0F},
+                        {item_origin.x + width - 4.0F, item_origin.y + step_height - 1.0F},
+                        ImGui::GetColorU32({accent.x, accent.y, accent.z, background_alpha}),
+                        4.0F);
+                }
+                const ImVec2 item_text_size = ImGui::CalcTextSize(items[index]);
+                ImGui::GetWindowDrawList()->AddText(
+                    {item_origin.x + 10.0F,
+                     item_origin.y + (step_height - item_text_size.y) * 0.5F},
+                    ImGui::GetColorU32(selected ? accent : text_primary), items[index]);
+                if (item_clicked) {
+                    changed = !selected;
+                    *current_item = index;
+                    ImGui::CloseCurrentPopup();
+                }
+                ImGui::PopID();
+            }
+            ImGui::EndPopup();
+        }
+        ImGui::PopStyleVar(2);
+    }
+    ImGui::PopID();
+    return changed;
+}
+
 enum class ButtonTone { primary, secondary, danger };
 
 bool styled_button(const char* label, float width, ButtonTone tone) {
@@ -375,27 +484,57 @@ void GroundStationUi::draw_connection_page(float scale) {
         ImGui::BeginChild("##DiscoveredDeviceList", {0.0F, 120.0F * scale},
                           ImGuiChildFlags_None,
                           ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        if (ImGui::BeginTable("DiscoveredDevices", 3,
-                              ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp)) {
-            ImGui::TableSetupColumn("机器人", ImGuiTableColumnFlags_WidthStretch, 1.1F);
-            ImGui::TableSetupColumn("地址", ImGuiTableColumnFlags_WidthStretch, 1.4F);
-            ImGui::TableSetupColumn("信号", ImGuiTableColumnFlags_WidthStretch, 0.5F);
-            for (int index = 0; index < static_cast<int>(devices.size()); ++index) {
-                ImGui::PushID(index);
-                const auto& device = devices[static_cast<std::size_t>(index)];
-                ImGui::TableNextRow(0, 34.0F * scale);
-                ImGui::TableNextColumn();
-                if (ImGui::Selectable(device.name.c_str(), selected_device_ == index,
-                                      ImGuiSelectableFlags_SpanAllColumns)) {
-                    selected_device_ = index;
-                }
-                ImGui::TableNextColumn();
-                ImGui::TextColored(text_secondary, "%s", device.address.c_str());
-                ImGui::TableNextColumn();
-                ImGui::TextColored(text_secondary, "%d%%", device.signal_percent);
-                ImGui::PopID();
+        const float row_width = ImGui::GetContentRegionAvail().x;
+        const float address_x = row_width * 0.39F;
+        const float signal_x = row_width * 0.86F;
+        const ImVec2 header_origin = ImGui::GetCursorScreenPos();
+        ImDrawList* device_draw = ImGui::GetWindowDrawList();
+        device_draw->AddText(header_origin, ImGui::GetColorU32(text_secondary), "机器人");
+        device_draw->AddText({header_origin.x + address_x, header_origin.y},
+                             ImGui::GetColorU32(text_secondary), "地址");
+        device_draw->AddText({header_origin.x + signal_x, header_origin.y},
+                             ImGui::GetColorU32(text_secondary), "信号");
+        ImGui::Dummy({row_width, ImGui::GetTextLineHeight() + 5.0F * scale});
+        for (int index = 0; index < static_cast<int>(devices.size()); ++index) {
+            ImGui::PushID(index);
+            const auto& device = devices[static_cast<std::size_t>(index)];
+            const ImVec2 row_origin = ImGui::GetCursorScreenPos();
+            const float row_height = 34.0F * scale;
+            const ImGuiID row_id = ImGui::GetID("##DeviceRow");
+            if (ImGui::InvisibleButton("##DeviceRow", {row_width, row_height})) {
+                selected_device_ = index;
             }
-            ImGui::EndTable();
+            const float row_hover = animated_hover(row_id, ImGui::IsItemHovered());
+            const bool selected = selected_device_ == index;
+            const float row_alpha = selected ? 0.13F : 0.07F * row_hover;
+            if (row_alpha > 0.001F) {
+                device_draw->AddRectFilled(
+                    {row_origin.x + 2.0F * scale, row_origin.y + 1.0F * scale},
+                    {row_origin.x + row_width - 2.0F * scale,
+                     row_origin.y + row_height - 1.0F * scale},
+                    ImGui::GetColorU32({accent.x, accent.y, accent.z, row_alpha}),
+                    5.0F * scale);
+            }
+            char signal[16]{};
+            std::snprintf(signal, sizeof(signal), "%d%%", device.signal_percent);
+            const float text_y = row_origin.y +
+                                 (row_height - ImGui::GetTextLineHeight()) * 0.5F;
+            device_draw->PushClipRect(
+                {row_origin.x + 8.0F * scale, row_origin.y},
+                {row_origin.x + address_x - 10.0F * scale, row_origin.y + row_height}, true);
+            device_draw->AddText({row_origin.x + 8.0F * scale, text_y},
+                                 ImGui::GetColorU32(selected ? accent : text_primary),
+                                 device.name.c_str());
+            device_draw->PopClipRect();
+            device_draw->PushClipRect(
+                {row_origin.x + address_x, row_origin.y},
+                {row_origin.x + signal_x - 10.0F * scale, row_origin.y + row_height}, true);
+            device_draw->AddText({row_origin.x + address_x, text_y},
+                                 ImGui::GetColorU32(text_secondary), device.address.c_str());
+            device_draw->PopClipRect();
+            device_draw->AddText({row_origin.x + signal_x, text_y},
+                                 ImGui::GetColorU32(text_secondary), signal);
+            ImGui::PopID();
         }
         const float device_scroll_max = ImGui::GetScrollMaxY();
         const float device_wheel = ImGui::GetIO().MouseWheel;
@@ -435,10 +574,12 @@ void GroundStationUi::draw_video_page(float scale) {
     begin_card("StreamSettings", {layout.width, 390.0F * scale});
     section_title("远端码流", "连续滑块采用 120ms 防抖，松开时立即提交");
     ImGui::SetNextItemWidth(300.0F * scale);
-    if (ImGui::Combo("画质", &quality_index_, qualities, static_cast<int>(std::size(qualities))))
+    if (animated_combo("画质", &quality_index_, qualities,
+                       static_cast<int>(std::size(qualities))))
         queue_video_settings(true);
     ImGui::SetNextItemWidth(300.0F * scale);
-    if (ImGui::Combo("编码器", &encoder_index_, encoders, static_cast<int>(std::size(encoders))))
+    if (animated_combo("编码器", &encoder_index_, encoders,
+                       static_cast<int>(std::size(encoders))))
         queue_video_settings(true);
     ImGui::SetNextItemWidth(300.0F * scale);
     if (ImGui::SliderInt("目标帧率", &frame_rate_, 24, 240, "%d FPS"))
@@ -462,7 +603,8 @@ void GroundStationUi::draw_video_page(float scale) {
     begin_card("DecodeSettings", {layout.width, 390.0F * scale});
     section_title("本地解码与图像", "解码选项和远端图像增强参数");
     ImGui::SetNextItemWidth(300.0F * scale);
-    if (ImGui::Combo("解码器", &decoder_index_, decoders, static_cast<int>(std::size(decoders))))
+    if (animated_combo("解码器", &decoder_index_, decoders,
+                       static_cast<int>(std::size(decoders))))
         queue_video_settings(true);
     if (toggle_switch("垂直同步", &vertical_sync_)) queue_video_settings(true);
     ImGui::SetNextItemWidth(300.0F * scale);
@@ -494,20 +636,20 @@ void GroundStationUi::draw_video_page(float scale) {
         ImGui::TableNextColumn();
         ImGui::TextColored(text_secondary, "分辨率");
         ImGui::SetNextItemWidth(-1.0F);
-        resolution_changed = ImGui::Combo("##Resolution", &next_resolution, resolutions,
-                                          static_cast<int>(std::size(resolutions)));
+        resolution_changed = animated_combo("##Resolution", &next_resolution, resolutions,
+                                            static_cast<int>(std::size(resolutions)));
 
         ImGui::TableNextColumn();
         ImGui::TextColored(text_secondary, "窗口模式");
         ImGui::SetNextItemWidth(-1.0F);
-        window_changed = ImGui::Combo("##WindowMode", &next_window_mode, window_modes,
-                                      static_cast<int>(std::size(window_modes)));
+        window_changed = animated_combo("##WindowMode", &next_window_mode, window_modes,
+                                        static_cast<int>(std::size(window_modes)));
 
         ImGui::TableNextColumn();
         ImGui::TextColored(text_secondary, "目标显示器");
         ImGui::SetNextItemWidth(-1.0F);
-        display_changed = ImGui::Combo("##TargetDisplay", &next_display, displays,
-                                       static_cast<int>(std::size(displays)));
+        display_changed = animated_combo("##TargetDisplay", &next_display, displays,
+                                         static_cast<int>(std::size(displays)));
         ImGui::EndTable();
     }
     if (resolution_changed || window_changed || display_changed) {
@@ -654,7 +796,8 @@ void GroundStationUi::draw_recording_page(float scale) {
     ImGui::InputTextWithHint("##RecordingDirectory", "例如 recordings", recording_directory_.data(),
                              recording_directory_.size());
     ImGui::SetNextItemWidth(300.0F * scale);
-    ImGui::Combo("封装格式", &recording_format_, formats, static_cast<int>(std::size(formats)));
+    animated_combo("封装格式", &recording_format_, formats,
+                   static_cast<int>(std::size(formats)));
     ImGui::SetNextItemWidth(300.0F * scale);
     ImGui::SliderInt("录制质量", &recording_quality_, 1, 100);
     ImGui::SetNextItemWidth(300.0F * scale);
@@ -841,14 +984,24 @@ void GroundStationUi::draw_audit_page(float scale) {
     end_card();
     ImGui::Dummy({0.0F, 12.0F * scale});
     const auto entries = backend_.audit_entries();
-    if (ImGui::BeginTable("AuditTable", 3,
-                          ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg |
-                              ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_ScrollY,
-                          {0.0F, 410.0F * scale})) {
+    begin_card("AuditLog", {0.0F, 410.0F * scale});
+    if (ImGui::BeginTable("AuditHeader", 3, ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("时间", ImGuiTableColumnFlags_WidthFixed, 145.0F * scale);
         ImGui::TableSetupColumn("级别", ImGuiTableColumnFlags_WidthFixed, 90.0F * scale);
         ImGui::TableSetupColumn("消息");
         ImGui::TableHeadersRow();
+        ImGui::EndTable();
+    }
+    ImGui::Separator();
+    ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.0F, 0.0F, 0.0F, 0.0F});
+    ImGui::BeginChild("##AuditRows", {0.0F, -1.0F}, ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    if (ImGui::BeginTable("AuditRows", 3,
+                          ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("##Time", ImGuiTableColumnFlags_WidthFixed, 145.0F * scale);
+        ImGui::TableSetupColumn("##Level", ImGuiTableColumnFlags_WidthFixed, 90.0F * scale);
+        ImGui::TableSetupColumn("##Message");
         const std::string_view filter{audit_filter_.data()};
         bool has_match = false;
         for (const auto& entry : entries) {
@@ -867,14 +1020,22 @@ void GroundStationUi::draw_audit_page(float scale) {
             ImGui::TextColored(text_secondary, "%s",
                                entries.empty() ? "暂无日志记录" : "没有匹配的日志记录");
         }
-        const float audit_wheel = ImGui::GetIO().MouseWheel;
-        if (ImGui::IsWindowHovered() && audit_wheel != 0.0F &&
-            ((audit_wheel > 0.0F && ImGui::GetScrollY() > 0.0F) ||
-             (audit_wheel < 0.0F && ImGui::GetScrollY() < ImGui::GetScrollMaxY()))) {
-            nested_scroll_consumed_ = true;
-        }
         ImGui::EndTable();
     }
+    const float audit_scroll_max = ImGui::GetScrollMaxY();
+    const float audit_wheel = ImGui::GetIO().MouseWheel;
+    if (ImGui::IsWindowHovered() && audit_wheel != 0.0F &&
+        ((audit_wheel > 0.0F && audit_scroll_target_ > 0.0F) ||
+         (audit_wheel < 0.0F && audit_scroll_target_ < audit_scroll_max))) {
+        audit_scroll_target_ -= audit_wheel * 100.0F * scale;
+        nested_scroll_consumed_ = true;
+    }
+    audit_scroll_target_ = std::clamp(audit_scroll_target_, 0.0F, audit_scroll_max);
+    ImGui::SetScrollY(core::advance_smooth_scroll(
+        ImGui::GetScrollY(), audit_scroll_target_, ImGui::GetIO().DeltaTime, scale));
+    ImGui::EndChild();
+    ImGui::PopStyleColor();
+    end_card();
 }
 
 void GroundStationUi::draw_interface_page(float scale) {

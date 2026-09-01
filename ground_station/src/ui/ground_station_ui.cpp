@@ -856,11 +856,6 @@ void GroundStationUi::draw_settings_tabs(float delta_seconds, float scale) {
         tab_hover_[index] += (target - tab_hover_[index]) *
                              (1.0F - std::exp(-delta_seconds / 0.06F));
         ImDrawList* draw = ImGui::GetWindowDrawList();
-        if (active_settings_tab_ == index || tab_hover_[index] > 0.01F) {
-            const float alpha = active_settings_tab_ == index ? 0.14F : 0.07F * tab_hover_[index];
-            draw->AddRectFilled(origin, {origin.x + width, origin.y + height},
-                                color_with_alpha(accent, alpha), 7.0F * scale);
-        }
         const ImVec4 inactive_text{
             text_secondary.x + (text_primary.x - text_secondary.x) * tab_hover_[index],
             text_secondary.y + (text_primary.y - text_secondary.y) * tab_hover_[index],

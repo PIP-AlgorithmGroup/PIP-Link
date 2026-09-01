@@ -218,7 +218,7 @@ std::optional<std::pair<std::string, std::uint16_t>> split_endpoint(
 }
 
 std::optional<Endpoint> resolve_endpoint(const DeviceInfo& device,
-                                         std::optional<std::uint16_t> discovered_video_port,
+                                         std::uint16_t video_port_override,
                                          std::string& error) {
     const auto split = split_endpoint(device.address);
     if (!split) {
@@ -238,9 +238,10 @@ std::optional<Endpoint> resolve_endpoint(const DeviceInfo& device,
     Endpoint endpoint{};
     endpoint.control = *reinterpret_cast<sockaddr_in*>(results->ai_addr);
     endpoint.video = endpoint.control;
-    const std::uint16_t video_port = discovered_video_port.value_or(
-        split->second >= 1000 ? static_cast<std::uint16_t>(split->second - 1000)
-                              : default_video_port);
+    const std::uint16_t video_port = video_port_override != 0
+        ? video_port_override
+        : (split->second >= 1000 ? static_cast<std::uint16_t>(split->second - 1000)
+                                 : default_video_port);
     endpoint.video.sin_port = htons(video_port);
     endpoint.display = device.address;
     freeaddrinfo(results);
@@ -617,12 +618,11 @@ public:
     }
 
     bool open_session(const DeviceInfo& device) {
-        std::optional<std::uint16_t> video_port = device.video_port == 0
-            ? std::nullopt : std::optional<std::uint16_t>{device.video_port};
+        std::uint16_t video_port = device.video_port;
         {
             std::lock_guard lock(discovery_mutex_);
             const auto iterator = discovered_video_ports_.find(device.address);
-            if (!video_port && iterator != discovered_video_ports_.end()) {
+            if (video_port == 0 && iterator != discovered_video_ports_.end()) {
                 video_port = iterator->second;
             }
         }

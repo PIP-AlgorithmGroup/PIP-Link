@@ -21,7 +21,9 @@ public:
     }
 
     [[nodiscard]] pip_link::backend::VideoSurface latest_video_surface() const override {
-        return {reinterpret_cast<void*>(1), 1280, 720};
+        return video_surface_available
+                   ? pip_link::backend::VideoSurface{reinterpret_cast<void*>(1), 1280, 720}
+                   : pip_link::backend::VideoSurface{};
     }
 
     void set_ready(bool ready) override {
@@ -43,6 +45,7 @@ public:
     int ready_requests{0};
     int disconnect_requests{0};
     int control_packets{0};
+    bool video_surface_available{true};
 };
 
 void draw_frame(pip_link::ui::GroundStationUi& ui) {
@@ -117,6 +120,19 @@ int main() {
 
     TestBackend backend;
     pip_link::ui::GroundStationUi ui{backend};
+    backend.video_surface_available = false;
+    draw_frame(ui);
+    const int no_video_hud_vertices = ImGui::GetDrawData()->TotalVtxCount;
+    press_key(ui, ImGuiKey_Tab);
+    for (int frame = 0; frame < 90; ++frame) draw_frame(ui);
+    const int no_video_hidden_input_vertices = ImGui::GetDrawData()->TotalVtxCount;
+    if (no_video_hud_vertices <= no_video_hidden_input_vertices) {
+        std::cerr << "No-video state did not render the input HUD overlay.\n";
+        return 1;
+    }
+    press_key(ui, ImGuiKey_Tab);
+    for (int frame = 0; frame < 90; ++frame) draw_frame(ui);
+    backend.video_surface_available = true;
     io.DisplaySize = {900.0F, 900.0F};
     draw_frame(ui);
     if (!video_is_fitted_without_cropping()) {

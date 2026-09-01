@@ -127,6 +127,13 @@ if(PIP_LINK_BUILD_GUI)
 
     add_executable(pip_link_ground_station ground_station/src/main.cpp)
     target_link_libraries(pip_link_ground_station PRIVATE pip_link_desktop)
+    if(MINGW)
+        target_link_options(pip_link_ground_station PRIVATE
+            -static
+            -static-libgcc
+            -static-libstdc++
+        )
+    endif()
     install(TARGETS pip_link_ground_station RUNTIME DESTINATION bin)
 endif()
 

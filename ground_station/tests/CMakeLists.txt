@@ -37,6 +37,13 @@ add_test(
             -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_remote_threading_contract.cmake
 )
 
+add_test(
+    NAME pip_link_mingw_runtime_contract_test
+    COMMAND ${CMAKE_COMMAND}
+            -DROOT_CMAKE=${CMAKE_SOURCE_DIR}/CMakeLists.txt
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_mingw_runtime_contract.cmake
+)
+
 if(TARGET pip_link_desktop)
     add_executable(pip_link_protocol_codec_test protocol_codec_test.cpp)
     target_link_libraries(pip_link_protocol_codec_test PRIVATE pip_link_desktop)
@@ -86,6 +93,13 @@ if(TARGET pip_link_desktop)
         COMMAND ${CMAKE_COMMAND}
                 -DSETTINGS_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/ui/ground_station_settings.cpp
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_backend_authoritative_state.cmake
+    )
+    add_test(
+        NAME pip_link_ui_design_contract_test
+        COMMAND ${CMAKE_COMMAND}
+                -DSETTINGS_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/ui/ground_station_settings.cpp
+                -DUI_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/ui/ground_station_ui.cpp
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_ui_design_contract.cmake
     )
     add_test(
         NAME pip_link_imgui_cursor_blink_test
