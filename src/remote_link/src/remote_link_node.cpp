@@ -45,7 +45,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     auto qos = rclcpp::QoS(1).best_effort().durability_volatile();
 
     // --- Publisher ---
-    cmd_pub_ = create_publisher<pip_vision_interfaces::msg::RemoteCommand>(
+    cmd_pub_ = create_publisher<pip_msgs::msg::RemoteCommand>(
         "/remote_command", rclcpp::QoS(10));
 
     // --- Subscriber ---
@@ -153,7 +153,7 @@ void RemoteLinkNode::on_command(
     int16_t mouse_dx, int16_t mouse_dy,
     uint8_t mouse_buttons, int8_t scroll_delta)
 {
-    auto msg = std::make_unique<pip_vision_interfaces::msg::RemoteCommand>();
+    auto msg = std::make_unique<pip_msgs::msg::RemoteCommand>();
     msg->header.stamp = now();
     msg->header.frame_id = "";
     msg->client_ip = client_ip;

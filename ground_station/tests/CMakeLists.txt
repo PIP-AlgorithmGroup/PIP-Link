@@ -3,6 +3,13 @@ target_link_libraries(pip_link_core_smoke_test PRIVATE pip_link_core)
 
 add_test(NAME pip_link_core_smoke_test COMMAND pip_link_core_smoke_test)
 
+add_test(
+    NAME pip_link_ros_message_package_test
+    COMMAND ${CMAKE_COMMAND}
+            -DREMOTE_LINK_SOURCE=${CMAKE_SOURCE_DIR}/src/remote_link
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_ros_message_package.cmake
+)
+
 if(TARGET pip_link_desktop)
     add_executable(pip_link_protocol_codec_test protocol_codec_test.cpp)
     target_link_libraries(pip_link_protocol_codec_test PRIVATE pip_link_desktop)

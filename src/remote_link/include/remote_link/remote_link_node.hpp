@@ -6,7 +6,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/string.hpp>
-#include <pip_vision_interfaces/msg/remote_command.hpp>
+#include <pip_msgs/msg/remote_command.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 
 namespace remote_link {
@@ -40,7 +40,7 @@ private:
     void apply_video_config(const std::vector<rclcpp::Parameter>& changes);
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr frame_sub_;
-    rclcpp::Publisher<pip_vision_interfaces::msg::RemoteCommand>::SharedPtr cmd_pub_;
+    rclcpp::Publisher<pip_msgs::msg::RemoteCommand>::SharedPtr cmd_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr stats_pub_;
     rclcpp::TimerBase::SharedPtr watchdog_timer_;
     rclcpp::TimerBase::SharedPtr diagnostic_timer_;
