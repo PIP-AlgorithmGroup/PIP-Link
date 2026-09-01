@@ -29,6 +29,10 @@ public:
         const uint8_t* data, size_t len,
         uint32_t& seq, std::string& json_payload);
 
+    static bool parse_param_query(
+        const uint8_t* data, size_t len,
+        uint32_t& seq);
+
     // heartbeat: just need seq for ACK
     static bool parse_heartbeat(
         const uint8_t* data, size_t len,

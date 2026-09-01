@@ -65,6 +65,7 @@ enum class RecordingState {
 struct RuntimeState final {
     ConnectionState connection{ConnectionState::disconnected};
     RecordingState recording{RecordingState::idle};
+    std::uint64_t remote_parameters_revision{};
 };
 
 struct BackendPreferences final {
@@ -76,6 +77,7 @@ struct BackendPreferences final {
     float field_of_view{90.0F};
     bool invert_pitch{};
     int quality_index{2};
+    int jpeg_quality{85};
     int resolution_index{3};
     int window_mode{};
     int display_index{};

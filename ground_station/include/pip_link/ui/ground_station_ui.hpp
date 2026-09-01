@@ -101,6 +101,7 @@ private:
     int contrast_{0};
     int sharpness_{0};
     int denoise_{0};
+    std::uint64_t remote_parameters_revision_{};
     int language_index_{0};
     int rebinding_action_{-1};
     float mouse_sensitivity_{1.0F};

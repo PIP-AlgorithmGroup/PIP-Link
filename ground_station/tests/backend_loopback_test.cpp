@@ -109,8 +109,9 @@ int main() {
     DWORD timeout = 100;
     setsockopt(server, SOL_SOCKET, SO_RCVTIMEO,
                reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+    DWORD video_timeout = 1;
     setsockopt(video_server, SOL_SOCKET, SO_RCVTIMEO,
-               reinterpret_cast<const char*>(&timeout), sizeof(timeout));
+               reinterpret_cast<const char*>(&video_timeout), sizeof(video_timeout));
     std::ifstream image_file(PIP_LINK_TEST_IMAGE, std::ios::binary);
     std::vector<std::uint8_t> image{
         std::istreambuf_iterator<char>(image_file), std::istreambuf_iterator<char>()};
@@ -121,6 +122,7 @@ int main() {
     std::atomic_bool running{true};
     std::atomic_bool saw_enabled_control{false};
     std::atomic_bool saw_video_settings{false};
+    std::atomic_int parameter_queries{0};
     std::atomic_bool sent_video{false};
     std::atomic_bool allow_video{false};
     std::mutex video_client_mutex;
@@ -138,10 +140,20 @@ int main() {
             if (count == SOCKET_ERROR) continue;
             if (count < 13 || buffer[0] != 0xCD || buffer[1] != 0xAB) continue;
             const std::uint32_t sequence = read_u32(buffer.data() + 5);
-            const auto ack = acknowledgment(sequence);
-            sendto(server, reinterpret_cast<const char*>(ack.data()),
-                   static_cast<int>(ack.size()), 0,
-                   reinterpret_cast<const sockaddr*>(&from), from_length);
+            if (buffer[3] == 0x03) {
+                ++parameter_queries;
+                const auto response = pip_link::backend::protocol::parameter_update(
+                    sequence, 1.0,
+                    R"({"bitrate":8000,"target_fps":48,"jpeg_quality":95,"encoder":"jpeg","fec_enabled":true,"fec_redundancy":0.3,"brightness":10,"contrast":-5,"sharpness":20,"denoise":15})");
+                sendto(server, reinterpret_cast<const char*>(response.data()),
+                       static_cast<int>(response.size()), 0,
+                       reinterpret_cast<const sockaddr*>(&from), from_length);
+            } else {
+                const auto ack = acknowledgment(sequence);
+                sendto(server, reinterpret_cast<const char*>(ack.data()),
+                       static_cast<int>(ack.size()), 0,
+                       reinterpret_cast<const sockaddr*>(&from), from_length);
+            }
             if (buffer[3] == 0x01 && count == 37 && buffer[17] == 1 &&
                 buffer[27] == 12 && buffer[29] == 0xF9 && buffer[30] == 0xFF) {
                 saw_enabled_control = true;
@@ -217,6 +229,24 @@ int main() {
             std::cerr << "video frame-rate and bitrate settings were not transmitted\n";
             failed = true;
         }
+        if (!wait_for([&] {
+                const auto preferences = backend.preferences();
+                return parameter_queries.load() == 1 && preferences.frame_rate == 48 &&
+                       preferences.bitrate_kbps == 8000 && preferences.quality_index == 3 &&
+                       preferences.jpeg_quality == 95 &&
+                       preferences.encoder_index == 0 &&
+                       preferences.fec_enabled && preferences.fec_redundancy == 0.3F &&
+                       preferences.brightness == 10 && preferences.contrast == -5 &&
+                       preferences.sharpness == 20 && preferences.denoise == 15;
+            }, std::chrono::seconds(1))) {
+            std::cerr << "remote video settings were not queried and synchronized\n";
+            failed = true;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(300));
+        if (parameter_queries.load() != 1) {
+            std::cerr << "remote video settings were queried more than once per connection\n";
+            failed = true;
+        }
         backend.start_recording(output_directory.string(), 2, 85, 0);
         if (backend.runtime_state().recording !=
             pip_link::backend::RecordingState::recording) {
@@ -235,6 +265,11 @@ int main() {
             std::cerr << "enabled control packet was not observed\n";
             failed = true;
         }
+        if (!wait_for([&] { return backend.telemetry().decoded_frames > 0; },
+                      std::chrono::seconds(3))) {
+            std::cerr << "video frame was not reassembled and decoded\n";
+            failed = true;
+        }
         backend.take_screenshot(output_directory.string());
         backend.stop_recording();
         bool has_screenshot = false;
@@ -251,11 +286,6 @@ int main() {
         }
         if (!has_screenshot || !has_recording) {
             std::cerr << "screenshot or raw recording output is missing\n";
-            failed = true;
-        }
-        if (!wait_for([&] { return backend.telemetry().decoded_frames > 0; },
-                      std::chrono::seconds(3))) {
-            std::cerr << "video frame was not reassembled and decoded\n";
             failed = true;
         }
         backend.disconnect_device();

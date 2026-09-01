@@ -60,6 +60,20 @@ int main() {
     if (!expect(json_packet.size() == 38 && verify_crc(json_packet),
                 "parameter update mismatch")) return 1;
 
+    auto query_packet = parameter_query(10, 3.5);
+    if (!expect(query_packet.size() == 21 && verify_crc(query_packet) &&
+                    query_packet[3] == static_cast<std::uint8_t>(MessageType::parameter_query),
+                "parameter query mismatch")) return 1;
+
+    std::uint32_t response_sequence = 0;
+    std::string response_json;
+    if (!expect(parse_parameter_update(json_packet, response_sequence, response_json) &&
+                    response_sequence == 9 && response_json == R"({"target_fps":60})",
+                "parameter response parser mismatch")) return 1;
+    json_packet.back() ^= 1;
+    if (!expect(!parse_parameter_update(json_packet, response_sequence, response_json),
+                "corrupt parameter response accepted")) return 1;
+
     std::vector<std::uint8_t> ack(29);
     write_u16(ack.data(), magic);
     ack[2] = version;

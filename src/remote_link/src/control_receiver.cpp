@@ -8,6 +8,7 @@
 #include <cstring>
 #include <chrono>
 #include <cstdio>
+#include <vector>
 
 namespace remote_link {
 
@@ -22,6 +23,9 @@ ControlReceiver::~ControlReceiver() { stop(); }
 
 void ControlReceiver::set_command_callback(CommandCallback cb) { cmd_cb_ = std::move(cb); }
 void ControlReceiver::set_param_update_callback(ParamUpdateCallback cb) { param_cb_ = std::move(cb); }
+void ControlReceiver::set_param_query_callback(ParamQueryCallback cb) {
+    param_query_cb_ = std::move(cb);
+}
 
 void ControlReceiver::start() {
     control_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
@@ -165,13 +169,21 @@ void ControlReceiver::handle_param_update(
 void ControlReceiver::handle_param_query(
     const uint8_t* data, size_t len, const struct sockaddr_in& from)
 {
-    // Respond with empty ACK; full PARAM_QUERY response handled by RemoteLinkNode via param_cb_
-    if (len < ProtocolCodec::HEADER_SIZE + 4) return;
     uint32_t seq = 0;
-    std::memcpy(&seq, data + 5, 4);  // Seq field
-    double t2 = now_sec();
-    double t3 = now_sec();
-    send_ack(control_fd_, from, seq, t2, t3);
+    if (!ProtocolCodec::parse_param_query(data, len, seq)) return;
+    if (!param_query_cb_) {
+        const double now = now_sec();
+        send_ack(control_fd_, from, seq, now, now);
+        return;
+    }
+    const std::string json = param_query_cb_();
+    std::vector<uint8_t> response(
+        ProtocolCodec::HEADER_SIZE + 8 + json.size() + 4);
+    const size_t response_size = ProtocolCodec::build_param_response(
+        response.data(), response.size(), seq, json);
+    if (response_size == 0) return;
+    sendto(control_fd_, response.data(), response_size, 0,
+           reinterpret_cast<const sockaddr*>(&from), sizeof(from));
 }
 
 }  // namespace remote_link

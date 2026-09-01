@@ -18,6 +18,8 @@
 #include <chrono>
 #include <condition_variable>
 #include <cctype>
+#include <charconv>
+#include <cmath>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -41,6 +43,7 @@ using namespace std::chrono_literals;
 constexpr std::uint16_t default_control_port = 6000;
 constexpr std::uint16_t default_video_port = 5000;
 constexpr std::size_t max_audit_entries = 10000;
+constexpr std::array<int, 4> jpeg_quality_levels{55, 70, 85, 95};
 
 template <typename T>
 void release(T*& pointer) noexcept {
@@ -127,6 +130,47 @@ std::optional<std::string> json_string_field(std::string_view line,
             result += character;
         }
     }
+    return {};
+}
+
+std::optional<std::string_view> json_scalar_field(std::string_view json,
+                                                  std::string_view field) {
+    const std::string marker = "\"" + std::string(field) + "\"";
+    std::size_t position = json.find(marker);
+    if (position == std::string_view::npos) return {};
+    position = json.find(':', position + marker.size());
+    if (position == std::string_view::npos) return {};
+    position = json.find_first_not_of(" \t\r\n", position + 1);
+    if (position == std::string_view::npos) return {};
+    if (json[position] == '"') {
+        const std::size_t end = json.find('"', position + 1);
+        if (end == std::string_view::npos) return {};
+        return json.substr(position + 1, end - position - 1);
+    }
+    const std::size_t end = json.find_first_of(",}", position);
+    if (end == std::string_view::npos) return {};
+    std::size_t trimmed_end = end;
+    while (trimmed_end > position && std::isspace(
+               static_cast<unsigned char>(json[trimmed_end - 1]))) {
+        --trimmed_end;
+    }
+    return json.substr(position, trimmed_end - position);
+}
+
+template <typename T>
+std::optional<T> json_number_field(std::string_view json, std::string_view field) {
+    const auto token = json_scalar_field(json, field);
+    if (!token) return {};
+    T value{};
+    const auto result = std::from_chars(token->data(), token->data() + token->size(), value);
+    if (result.ec != std::errc{} || result.ptr != token->data() + token->size()) return {};
+    return value;
+}
+
+std::optional<bool> json_boolean_field(std::string_view json, std::string_view field) {
+    const auto token = json_scalar_field(json, field);
+    if (token == "true") return true;
+    if (token == "false") return false;
     return {};
 }
 
@@ -320,7 +364,12 @@ public:
                 else if (key == "mouse_sensitivity") config_.mouse_sensitivity = std::stof(value);
                 else if (key == "field_of_view") config_.field_of_view = std::stof(value);
                 else if (key == "invert_pitch") config_.invert_pitch = std::stoi(value) != 0;
-                else if (key == "quality_index") config_.quality_index = std::stoi(value);
+                else if (key == "quality_index") {
+                    config_.quality_index = std::clamp(std::stoi(value), 0, 3);
+                    config_.jpeg_quality = jpeg_quality_levels[
+                        static_cast<std::size_t>(config_.quality_index)];
+                }
+                else if (key == "jpeg_quality") config_.jpeg_quality = std::stoi(value);
                 else if (key == "brightness") config_.brightness = std::stoi(value);
                 else if (key == "contrast") config_.contrast = std::stoi(value);
                 else if (key == "sharpness") config_.sharpness = std::stoi(value);
@@ -390,6 +439,7 @@ public:
                << "field_of_view=" << copy.field_of_view << '\n'
                << "invert_pitch=" << copy.invert_pitch << '\n'
                << "quality_index=" << copy.quality_index << '\n'
+               << "jpeg_quality=" << copy.jpeg_quality << '\n'
                << "resolution_index=" << copy.resolution_index << '\n'
                << "window_mode=" << copy.window_mode << '\n'
                << "display_index=" << copy.display_index << '\n'
@@ -590,6 +640,65 @@ public:
         }
     }
 
+    void send_parameter_query() {
+        const std::uint32_t sequence = next_sequence();
+        send_control_packet(
+            protocol::parameter_query(sequence, monotonic_seconds()), sequence);
+    }
+
+    bool apply_remote_video_parameters(std::string_view json) {
+        const auto bitrate = json_number_field<int>(json, "bitrate");
+        const auto frame_rate = json_number_field<int>(json, "target_fps");
+        const auto jpeg_quality = json_number_field<int>(json, "jpeg_quality");
+        const auto encoder = json_scalar_field(json, "encoder");
+        const auto fec_enabled = json_boolean_field(json, "fec_enabled");
+        const auto fec_redundancy = json_number_field<float>(json, "fec_redundancy");
+        const auto brightness = json_number_field<int>(json, "brightness");
+        const auto contrast = json_number_field<int>(json, "contrast");
+        const auto sharpness = json_number_field<int>(json, "sharpness");
+        const auto denoise = json_number_field<int>(json, "denoise");
+        if (!bitrate || !frame_rate || !jpeg_quality || !encoder || !fec_enabled ||
+            !fec_redundancy || !brightness || !contrast || !sharpness || !denoise ||
+            (*encoder != "jpeg" && *encoder != "h264") ||
+            *bitrate < 1000 || *bitrate > 80000 ||
+            *frame_rate < 24 || *frame_rate > 240 ||
+            *jpeg_quality < 1 || *jpeg_quality > 100 ||
+            *fec_redundancy < 0.05F || *fec_redundancy > 0.5F ||
+            *brightness < -100 || *brightness > 100 ||
+            *contrast < -100 || *contrast > 100 ||
+            *sharpness < 0 || *sharpness > 100 || *denoise < 0 || *denoise > 100) {
+            return false;
+        }
+        const auto quality = std::min_element(
+            jpeg_quality_levels.begin(), jpeg_quality_levels.end(),
+            [jpeg_quality](int left, int right) {
+                return std::abs(left - *jpeg_quality) < std::abs(right - *jpeg_quality);
+            });
+        {
+            std::lock_guard lock(config_mutex_);
+            config_.quality_index = static_cast<int>(
+                std::distance(jpeg_quality_levels.begin(), quality));
+            config_.jpeg_quality = *jpeg_quality;
+            config_.encoder_index = *encoder == "h264" ? 1 : 0;
+            config_.frame_rate = *frame_rate;
+            config_.bitrate_kbps = *bitrate;
+            config_.fec_enabled = *fec_enabled;
+            config_.fec_redundancy = *fec_redundancy;
+            config_.brightness = *brightness;
+            config_.contrast = *contrast;
+            config_.sharpness = *sharpness;
+            config_.denoise = *denoise;
+        }
+        last_codec_ = static_cast<std::uint8_t>(*encoder == "h264" ? 1 : 0);
+        save_config();
+        {
+            std::lock_guard lock(state_mutex_);
+            ++state_.remote_parameters_revision;
+        }
+        append_audit("INFO", "已读取机器人图传参数");
+        return true;
+    }
+
     void send_register() {
         if (video_socket_ == INVALID_SOCKET) return;
         constexpr char command[] = "REGISTER";
@@ -609,10 +718,30 @@ public:
                 }
                 break;
             }
+            const std::span<const std::uint8_t> packet{
+                buffer.data(), static_cast<std::size_t>(received)};
+            std::uint32_t parameter_sequence = 0;
+            std::string parameter_json;
+            if (protocol::parse_parameter_update(
+                    packet, parameter_sequence, parameter_json)) {
+                const auto pending = pending_packets_.find(parameter_sequence);
+                if (pending == pending_packets_.end() || pending->second.bytes.size() <= 3 ||
+                    pending->second.bytes[3] != static_cast<std::uint8_t>(
+                        protocol::MessageType::parameter_query)) {
+                    ++invalid_packets_;
+                    continue;
+                }
+                pending_packets_.erase(pending);
+                ++control_acked_window_;
+                last_ack_ = Clock::now();
+                if (!apply_remote_video_parameters(parameter_json)) {
+                    ++invalid_packets_;
+                    append_audit("WARN", "机器人图传参数响应无效");
+                }
+                continue;
+            }
             protocol::Acknowledgment acknowledgment{};
-            if (!protocol::parse_ack(std::span<const std::uint8_t>{
-                                         buffer.data(), static_cast<std::size_t>(received)},
-                                     acknowledgment)) {
+            if (!protocol::parse_ack(packet, acknowledgment)) {
                 ++invalid_packets_;
                 continue;
             }
@@ -641,7 +770,10 @@ public:
                     became_connected = true;
                 }
             }
-            if (became_connected) append_audit("INFO", "机器人会话已建立");
+            if (became_connected) {
+                append_audit("INFO", "机器人会话已建立，正在读取图传参数");
+                send_parameter_query();
+            }
         }
     }
 
@@ -798,7 +930,9 @@ public:
             const bool retryable = type == static_cast<std::uint8_t>(
                                        protocol::MessageType::heartbeat) ||
                                    type == static_cast<std::uint8_t>(
-                                       protocol::MessageType::parameter_update);
+                                       protocol::MessageType::parameter_update) ||
+                                   type == static_cast<std::uint8_t>(
+                                       protocol::MessageType::parameter_query);
             if (retryable && pending.retries < 3 && control_socket_ != INVALID_SOCKET) {
                 const int sent = send(control_socket_,
                                       reinterpret_cast<const char*>(pending.bytes.data()),
@@ -810,6 +944,9 @@ public:
                     ++iterator;
                     continue;
                 }
+            }
+            if (type == static_cast<std::uint8_t>(protocol::MessageType::parameter_query)) {
+                append_audit("WARN", "读取机器人图传参数超时，保留本地设置");
             }
             iterator = pending_packets_.erase(iterator);
         }
@@ -1534,10 +1671,17 @@ void GroundStationBackendRuntime::apply_video_settings(
     int decoder_index, int frame_rate, int bitrate_kbps, bool fec_enabled,
     float fec_redundancy, int brightness, int contrast, int sharpness, int denoise,
     bool low_latency, bool vertical_sync) {
+    int jpeg_quality = 85;
     {
         std::lock_guard lock(impl_->config_mutex_);
         auto& config = impl_->config_;
-        config.quality_index = std::clamp(quality_index, 0, 3);
+        const int selected_quality = std::clamp(quality_index, 0, 3);
+        if (config.quality_index != selected_quality) {
+            config.jpeg_quality = jpeg_quality_levels[
+                static_cast<std::size_t>(selected_quality)];
+        }
+        config.quality_index = selected_quality;
+        jpeg_quality = config.jpeg_quality;
         config.resolution_index = std::clamp(resolution_index, 0, 5);
         config.window_mode = std::clamp(window_mode, 0, 1);
         config.encoder_index = std::clamp(encoder_index, 0, 1);
@@ -1556,6 +1700,7 @@ void GroundStationBackendRuntime::apply_video_settings(
     std::ostringstream json;
     json << "{\"target_fps\":" << std::clamp(frame_rate, 24, 240)
          << ",\"bitrate\":" << std::clamp(bitrate_kbps, 1000, 80000)
+         << ",\"jpeg_quality\":" << jpeg_quality
          << ",\"encoder\":\"" << (encoder_index == 0 ? "jpeg" : "h264")
          << "\",\"fec_enabled\":" << (fec_enabled ? "true" : "false")
          << ",\"fec_redundancy\":" << std::clamp(fec_redundancy, 0.05F, 0.5F)

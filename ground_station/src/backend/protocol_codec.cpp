@@ -131,6 +131,14 @@ std::vector<std::uint8_t> parameter_update(std::uint32_t sequence, double timest
     return packet;
 }
 
+std::vector<std::uint8_t> parameter_query(std::uint32_t sequence, double timestamp) {
+    std::vector<std::uint8_t> packet(common_header_size + 8 + 4);
+    write_header(packet.data(), MessageType::parameter_query, sequence);
+    write_f64(packet.data() + 9, timestamp);
+    seal(packet);
+    return packet;
+}
+
 std::vector<std::uint8_t> video_ack(std::uint32_t frame_id) {
     std::vector<std::uint8_t> packet(common_header_size + 4);
     write_header(packet.data(), MessageType::video_acknowledgment, frame_id);
@@ -160,6 +168,21 @@ bool parse_ack(std::span<const std::uint8_t> packet,
     acknowledgment.sequence = read_u32(packet.data() + 5);
     acknowledgment.remote_received_at = read_f64(packet.data() + 9);
     acknowledgment.remote_sent_at = read_f64(packet.data() + 17);
+    return true;
+}
+
+bool parse_parameter_update(std::span<const std::uint8_t> packet,
+                            std::uint32_t& sequence,
+                            std::string& json) {
+    constexpr std::size_t payload_offset = common_header_size + 8;
+    if (packet.size() <= payload_offset + 4 ||
+        packet[3] != static_cast<std::uint8_t>(MessageType::parameter_update) ||
+        !verify_crc(packet)) {
+        return false;
+    }
+    sequence = read_u32(packet.data() + 5);
+    json.assign(reinterpret_cast<const char*>(packet.data() + payload_offset),
+                packet.size() - payload_offset - 4);
     return true;
 }
 

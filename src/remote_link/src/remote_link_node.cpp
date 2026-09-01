@@ -88,6 +88,9 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
             on_param_update_from_udp(seq, json);
         });
 
+    control_rx_->set_param_query_callback(
+        [this] { return params_to_json(); });
+
     control_rx_->set_verbose(debug_verbose_);
     control_rx_->start();
 
@@ -204,6 +207,8 @@ void RemoteLinkNode::on_param_update_from_udp(
 
         if (j.contains("bitrate"))
             params.emplace_back("target_bitrate_kbps", j["bitrate"].get<int>());
+        if (j.contains("jpeg_quality"))
+            params.emplace_back("jpeg_quality", j["jpeg_quality"].get<int>());
         if (j.contains("target_fps"))
             params.emplace_back("target_fps", j["target_fps"].get<int>());
         if (j.contains("encoder"))
@@ -221,7 +226,12 @@ void RemoteLinkNode::on_param_update_from_udp(
         if (j.contains("denoise"))
             params.emplace_back("denoise", j["denoise"].get<int>());
 
-        if (!params.empty()) set_parameters(params);
+        if (!params.empty()) {
+            const auto result = set_parameters_atomically(params);
+            if (!result.successful) {
+                RCLCPP_WARN(get_logger(), "PARAM_UPDATE rejected: %s", result.reason.c_str());
+            }
+        }
     } catch (const std::exception& e) {
         RCLCPP_WARN(get_logger(), "PARAM_UPDATE parse error: %s", e.what());
     }
@@ -230,20 +240,63 @@ void RemoteLinkNode::on_param_update_from_udp(
 rcl_interfaces::msg::SetParametersResult
 RemoteLinkNode::on_parameter_change(const std::vector<rclcpp::Parameter>& params)
 {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = false;
+    const auto reject = [&result](const char* reason) {
+        result.reason = reason;
+        return result;
+    };
+    bool video_changed = false;
+    for (const auto& p : params) {
+        const auto& name = p.get_name();
+        if (name == "target_fps") {
+            if (p.as_int() < 24 || p.as_int() > 240) return reject("target_fps out of range");
+            video_changed = true;
+        } else if (name == "target_bitrate_kbps") {
+            if (p.as_int() < 1000 || p.as_int() > 80000) {
+                return reject("target_bitrate_kbps out of range");
+            }
+            video_changed = true;
+        } else if (name == "jpeg_quality") {
+            if (p.as_int() < 1 || p.as_int() > 100) return reject("jpeg_quality out of range");
+            video_changed = true;
+        } else if (name == "encoder") {
+            if (p.as_string() != "jpeg" && p.as_string() != "h264") {
+                return reject("unsupported encoder");
+            }
+            video_changed = true;
+        } else if (name == "fec_redundancy") {
+            if (p.as_double() < 0.05 || p.as_double() > 0.5) {
+                return reject("fec_redundancy out of range");
+            }
+            video_changed = true;
+        } else if (name == "brightness" || name == "contrast") {
+            if (p.as_int() < -100 || p.as_int() > 100) return reject("image value out of range");
+            video_changed = true;
+        } else if (name == "sharpness" || name == "denoise") {
+            if (p.as_int() < 0 || p.as_int() > 100) return reject("image value out of range");
+            video_changed = true;
+        } else if (name == "fec_enabled") {
+            video_changed = true;
+        } else if (name == "client_timeout_s") {
+            if (p.as_double() <= 0.0) return reject("client_timeout_s must be positive");
+        }
+    }
     for (const auto& p : params) {
         if (p.get_name() == "debug.verbose") {
             debug_verbose_ = p.as_bool();
+            if (control_rx_) control_rx_->set_verbose(debug_verbose_);
         } else if (p.get_name() == "client_timeout_s") {
             client_timeout_s_ = p.as_double();
         }
     }
-    apply_video_config();
-    rcl_interfaces::msg::SetParametersResult result;
+    if (video_changed) apply_video_config(params);
     result.successful = true;
+    result.reason.clear();
     return result;
 }
 
-void RemoteLinkNode::apply_video_config() {
+void RemoteLinkNode::apply_video_config(const std::vector<rclcpp::Parameter>& changes) {
     if (!video_tx_) return;
     VideoSender::Config cfg;
     cfg.port          = static_cast<uint16_t>(get_parameter("video_port").as_int());
@@ -257,6 +310,21 @@ void RemoteLinkNode::apply_video_config() {
     cfg.encoder_cfg.contrast       = get_parameter("contrast").as_int();
     cfg.encoder_cfg.sharpness      = get_parameter("sharpness").as_int();
     cfg.encoder_cfg.denoise        = get_parameter("denoise").as_int();
+    for (const auto& parameter : changes) {
+        const auto& name = parameter.get_name();
+        if (name == "target_fps") cfg.encoder_cfg.fps = parameter.as_int();
+        else if (name == "target_bitrate_kbps") {
+            cfg.encoder_cfg.target_bitrate = parameter.as_int();
+        } else if (name == "jpeg_quality") cfg.encoder_cfg.quality = parameter.as_int();
+        else if (name == "encoder") cfg.encoder_cfg.use_h264 = parameter.as_string() == "h264";
+        else if (name == "fec_enabled") cfg.fec_enabled = parameter.as_bool();
+        else if (name == "fec_redundancy") {
+            cfg.fec_redundancy = static_cast<float>(parameter.as_double());
+        } else if (name == "brightness") cfg.encoder_cfg.brightness = parameter.as_int();
+        else if (name == "contrast") cfg.encoder_cfg.contrast = parameter.as_int();
+        else if (name == "sharpness") cfg.encoder_cfg.sharpness = parameter.as_int();
+        else if (name == "denoise") cfg.encoder_cfg.denoise = parameter.as_int();
+    }
     video_tx_->update_config(cfg);
 }
 
@@ -290,12 +358,18 @@ void RemoteLinkNode::diagnostic_tick() {
     stats_pub_->publish(std::move(msg));
 }
 
-std::string RemoteLinkNode::params_to_json() const {    nlohmann::json j;
+std::string RemoteLinkNode::params_to_json() const {
+    nlohmann::json j;
     j["bitrate"]       = get_parameter("target_bitrate_kbps").as_int();
     j["target_fps"]    = get_parameter("target_fps").as_int();
+    j["jpeg_quality"]  = get_parameter("jpeg_quality").as_int();
     j["encoder"]       = get_parameter("encoder").as_string();
     j["fec_enabled"]   = get_parameter("fec_enabled").as_bool();
     j["fec_redundancy"]= get_parameter("fec_redundancy").as_double();
+    j["brightness"]    = get_parameter("brightness").as_int();
+    j["contrast"]      = get_parameter("contrast").as_int();
+    j["sharpness"]     = get_parameter("sharpness").as_int();
+    j["denoise"]       = get_parameter("denoise").as_int();
     return j.dump();
 }
 

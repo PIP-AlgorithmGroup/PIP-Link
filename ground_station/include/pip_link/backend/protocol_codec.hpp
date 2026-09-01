@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -50,11 +51,16 @@ struct VideoChunkHeader final {
 [[nodiscard]] std::vector<std::uint8_t> parameter_update(std::uint32_t sequence,
                                                          double timestamp,
                                                          std::string_view json);
+[[nodiscard]] std::vector<std::uint8_t> parameter_query(std::uint32_t sequence,
+                                                        double timestamp);
 [[nodiscard]] std::vector<std::uint8_t> video_ack(std::uint32_t frame_id);
 [[nodiscard]] std::vector<std::uint8_t> video_nack(
     std::uint32_t frame_id, std::span<const std::uint16_t> missing_chunks);
 [[nodiscard]] bool parse_ack(std::span<const std::uint8_t> packet,
                              Acknowledgment& acknowledgment) noexcept;
+[[nodiscard]] bool parse_parameter_update(std::span<const std::uint8_t> packet,
+                                          std::uint32_t& sequence,
+                                          std::string& json);
 [[nodiscard]] bool parse_video_chunk(std::span<const std::uint8_t> packet,
                                      VideoChunkHeader& header,
                                      std::span<const std::uint8_t>& payload) noexcept;

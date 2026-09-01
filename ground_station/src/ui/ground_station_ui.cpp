@@ -160,6 +160,7 @@ GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backe
         std::copy(settings.key_bindings.begin(), settings.key_bindings.end(),
                   key_bindings_.begin());
     }
+    remote_parameters_revision_ = backend_.runtime_state().remote_parameters_revision;
 }
 
 bool GroundStationUi::quit_requested() const noexcept {
@@ -213,6 +214,23 @@ void GroundStationUi::sync_backend_state() {
     const backend::RuntimeState state = backend_.runtime_state();
     connection_state_ = state.connection;
     recording_state_ = state.recording;
+
+    if (state.remote_parameters_revision != remote_parameters_revision_) {
+        const backend::BackendPreferences settings = backend_.preferences();
+        quality_index_ = settings.quality_index;
+        encoder_index_ = settings.encoder_index;
+        frame_rate_ = settings.frame_rate;
+        bitrate_kbps_ = settings.bitrate_kbps;
+        fec_enabled_ = settings.fec_enabled;
+        fec_redundancy_ = settings.fec_redundancy;
+        brightness_ = settings.brightness;
+        contrast_ = settings.contrast;
+        sharpness_ = settings.sharpness;
+        denoise_ = settings.denoise;
+        video_settings_debounce_.cancel();
+        remote_parameters_revision_ = state.remote_parameters_revision;
+        set_feedback("已同步机器人图传参数");
+    }
 
     if (was_connected && !is_connected()) {
         leave_ready("连接已断开，已自动退出 READY");

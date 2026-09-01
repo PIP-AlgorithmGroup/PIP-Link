@@ -37,7 +37,7 @@ private:
     void watchdog_tick();
     void diagnostic_tick();
     std::string params_to_json() const;
-    void apply_video_config();
+    void apply_video_config(const std::vector<rclcpp::Parameter>& changes);
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr frame_sub_;
     rclcpp::Publisher<pip_vision_interfaces::msg::RemoteCommand>::SharedPtr cmd_pub_;

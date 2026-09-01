@@ -48,7 +48,7 @@ bool ProtocolCodec::verify_crc(const uint8_t* data, size_t len) {
 
 int ProtocolCodec::parse_type(const uint8_t* data, size_t len) {
     if (len < HEADER_SIZE + 4) return -1;
-    if (read_u16(data) != MAGIC) return -1;
+    if (read_u16(data) != MAGIC || data[2] != VERSION) return -1;
     if (!verify_crc(data, len)) return -1;
     return data[3];  // MsgType byte
 }
@@ -90,6 +90,17 @@ bool ProtocolCodec::parse_param_update(
     const size_t json_len   = len - 4 - json_start;
     if (json_len == 0) return false;
     json_payload.assign(reinterpret_cast<const char*>(data + json_start), json_len);
+    return true;
+}
+
+bool ProtocolCodec::parse_param_query(
+    const uint8_t* data, size_t len, uint32_t& seq)
+{
+    // PARAM_QUERY: Header(9) + t1(8) + CRC(4) = 21B
+    if (len != 21) return false;
+    if (read_u16(data) != MAGIC || data[3] != 0x03) return false;
+    if (!verify_crc(data, len)) return false;
+    seq = read_u32(data + 5);
     return true;
 }
 

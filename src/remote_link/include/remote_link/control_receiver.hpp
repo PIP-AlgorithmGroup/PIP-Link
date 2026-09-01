@@ -21,12 +21,14 @@ public:
 
     using ParamUpdateCallback = std::function<void(
         uint32_t seq, const std::string& json)>;
+    using ParamQueryCallback = std::function<std::string()>;
 
     explicit ControlReceiver(uint16_t port);
     ~ControlReceiver();
 
     void set_command_callback(CommandCallback cb);
     void set_param_update_callback(ParamUpdateCallback cb);
+    void set_param_query_callback(ParamQueryCallback cb);
     void set_verbose(bool v) { verbose_.store(v); }
 
     void start();
@@ -54,6 +56,7 @@ private:
 
     CommandCallback     cmd_cb_;
     ParamUpdateCallback param_cb_;
+    ParamQueryCallback  param_query_cb_;
 
     std::atomic<double> last_client_time_{0.0};
     std::string         client_ip_;
