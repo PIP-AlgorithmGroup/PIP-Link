@@ -104,8 +104,8 @@ struct DesktopWindow::Impl final {
     IDXGISwapChain* swap_chain{nullptr};
     ID3D11RenderTargetView* render_target{nullptr};
     float display_scale{1.0F};
-    backend::GroundStationBackendStub backend;
-    ui::GroundStationUi ui{backend};
+    std::unique_ptr<backend::GroundStationBackendRuntime> backend;
+    std::unique_ptr<ui::GroundStationUi> ui;
 
     bool create_render_target() {
         ID3D11Texture2D* back_buffer = nullptr;
@@ -168,22 +168,25 @@ struct DesktopWindow::Impl final {
     }
 
     void update_mouse_capture() {
-        const bool requested = ui.wants_relative_mouse_mode();
+        if (!ui) return;
+        const bool requested = ui->wants_relative_mouse_mode();
         const bool active = SDL_GetWindowRelativeMouseMode(window);
         if (requested == active) {
-            ui.set_mouse_capture_active(active);
+            ui->set_mouse_capture_active(active);
             return;
         }
         if (!SDL_SetWindowRelativeMouseMode(window, requested)) {
             std::cerr << "Relative mouse mode change failed: " << SDL_GetError() << '\n';
-            ui.set_mouse_capture_active(active);
-            if (requested) ui.on_mouse_capture_failed();
+            ui->set_mouse_capture_active(active);
+            if (requested) ui->on_mouse_capture_failed();
             return;
         }
-        ui.set_mouse_capture_active(requested);
+        ui->set_mouse_capture_active(requested);
     }
 
     void shutdown() {
+        ui.reset();
+        backend.reset();
         if (ImGui::GetCurrentContext() != nullptr) {
             ImGui_ImplDX11_Shutdown();
             ImGui_ImplSDL3_Shutdown();
@@ -274,6 +277,16 @@ int DesktopWindow::run() {
 
     ImGui_ImplSDL3_InitForD3D(impl_->window);
     ImGui_ImplDX11_Init(impl_->device, impl_->context);
+    impl_->backend = std::make_unique<backend::GroundStationBackendRuntime>(
+        impl_->window, impl_->device, impl_->context);
+    const backend::BackendPreferences preferences = impl_->backend->preferences();
+    if (preferences.display_configured) {
+        impl_->backend->preview_display_settings(preferences.resolution_index,
+                                                 preferences.window_mode,
+                                                 preferences.display_index);
+        impl_->backend->confirm_display_settings();
+    }
+    impl_->ui = std::make_unique<ui::GroundStationUi>(*impl_->backend);
 
     bool running = true;
     auto last_frame = std::chrono::steady_clock::now();
@@ -294,7 +307,7 @@ int DesktopWindow::run() {
             }
             if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST &&
                 event.window.windowID == SDL_GetWindowID(impl_->window)) {
-                impl_->ui.on_focus_lost();
+                impl_->ui->on_focus_lost();
             }
         }
 
@@ -308,9 +321,9 @@ int DesktopWindow::run() {
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplSDL3_NewFrame();
         ImGui::NewFrame();
-        impl_->ui.draw(delta_seconds, impl_->display_scale);
+        impl_->ui->draw(delta_seconds, impl_->display_scale);
         impl_->update_mouse_capture();
-        if (impl_->ui.quit_requested()) {
+        if (impl_->ui->quit_requested()) {
             running = false;
         }
         ImGui::Render();
@@ -325,7 +338,7 @@ int DesktopWindow::run() {
         impl_->context->OMSetRenderTargets(1, &impl_->render_target, nullptr);
         impl_->context->ClearRenderTargetView(impl_->render_target, clear_color);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        impl_->swap_chain->Present(1, 0);
+        impl_->swap_chain->Present(impl_->backend->vertical_sync_enabled() ? 1U : 0U, 0);
     }
 
     impl_->shutdown();

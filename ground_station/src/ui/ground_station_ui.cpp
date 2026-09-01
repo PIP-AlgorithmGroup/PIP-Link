@@ -87,6 +87,61 @@ GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backe
         ImGuiKey_W, ImGuiKey_S, ImGuiKey_A, ImGuiKey_D,
         ImGuiKey_LeftShift, ImGuiKey_E, ImGuiKey_F,
     };
+    const backend::BackendPreferences settings = backend_.preferences();
+    heartbeat_ms_ = settings.heartbeat_ms;
+    reconnect_seconds_ = settings.reconnect_seconds;
+    mtu_ = settings.mtu;
+    auto_reconnect_ = settings.auto_reconnect;
+    mouse_sensitivity_ = settings.mouse_sensitivity;
+    field_of_view_ = settings.field_of_view;
+    invert_pitch_ = settings.invert_pitch;
+    quality_index_ = settings.quality_index;
+    resolution_index_ = settings.resolution_index;
+    window_mode_ = settings.window_mode;
+    display_index_ = settings.display_index;
+    previous_resolution_index_ = resolution_index_;
+    previous_window_mode_ = window_mode_;
+    previous_display_index_ = display_index_;
+    encoder_index_ = settings.encoder_index;
+    decoder_index_ = settings.decoder_index;
+    frame_rate_ = settings.frame_rate;
+    bitrate_kbps_ = settings.bitrate_kbps;
+    fec_enabled_ = settings.fec_enabled;
+    fec_redundancy_ = settings.fec_redundancy;
+    brightness_ = settings.brightness;
+    contrast_ = settings.contrast;
+    sharpness_ = settings.sharpness;
+    denoise_ = settings.denoise;
+    low_latency_ = settings.low_latency;
+    vertical_sync_ = settings.vertical_sync;
+    invert_y_ = settings.invert_y;
+    capture_mouse_ = settings.capture_mouse;
+    send_keyboard_ = settings.send_keyboard;
+    hud_scale_ = settings.hud_scale;
+    hud_opacity_ = settings.hud_opacity;
+    show_input_hud_ = settings.show_input;
+    show_status_hud_ = settings.show_statistics;
+    show_ready_hud_ = settings.show_ready;
+    language_index_ = settings.language_index;
+    show_performance_graph_ = settings.show_performance_graph;
+    show_debug_info_ = settings.show_debug_info;
+    verbose_log_ = settings.verbose_log;
+    simulation_mode_ = settings.simulation_mode;
+    gamepad_deadzone_ = settings.gamepad_deadzone;
+    gamepad_vibration_ = settings.gamepad_vibration;
+    recording_format_ = settings.recording_format;
+    recording_quality_ = settings.recording_quality;
+    split_minutes_ = settings.split_minutes;
+    std::snprintf(service_name_.data(), service_name_.size(), "%s",
+                  settings.service_name.c_str());
+    std::snprintf(manual_address_.data(), manual_address_.size(), "%s",
+                  settings.last_endpoint.c_str());
+    std::snprintf(recording_directory_.data(), recording_directory_.size(), "%s",
+                  settings.recording_directory.c_str());
+    if (settings.key_bindings.size() == key_bindings_.size()) {
+        std::copy(settings.key_bindings.begin(), settings.key_bindings.end(),
+                  key_bindings_.begin());
+    }
 }
 
 bool GroundStationUi::quit_requested() const noexcept {

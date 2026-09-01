@@ -1,6 +1,6 @@
 # PIP-Link C++ 第一视角机器人控制客户端
 
-这是 PIP-Link Windows 地面端的 C++20 重构工程。产品交互按第一视角机器人控制客户端设计，而不是传统仪表式地面站。旧 Python 地面端已从本分支移除，当前版本具备可运行的原生桌面前端与待接入的后端接口。
+这是 PIP-Link Windows 地面端的 C++20 重构工程。产品交互按第一视角机器人控制客户端设计，而不是传统仪表式地面站。旧 Python 地面端已从本分支移除，当前版本具备可运行的原生桌面前端与原生网络、图传、录制后端。
 
 ## 当前目标
 
@@ -15,9 +15,9 @@
 - 设置页使用响应式卡片布局、圆角动画开关和帧率无关的平滑滚动，并根据可用桌面尺寸选择初始窗口大小。
 - 图传远端参数使用 120ms 防抖，松开滑块时立即提交；显示模式提供 30 秒确认和自动回滚。
 - 打开设置、打开控制台、窗口失焦或断开连接时会强制退出 READY，并停止转发控制输入。
-- `GroundStationBackend` 暴露图传纹理、输入、设备、网络、视频、控制、录制和日志接口；当前 Stub 中以 `TODO` 标记真实后端接入点。
+- `GroundStationBackendRuntime` 实现 mDNS 发现、UDP 会话、心跳/控制协议、自动重连、视频分片与 FEC、Media Foundation/WIC 解码、D3D11 纹理、录像、截图、设置、诊断和审计日志；`GroundStationBackendStub` 仅供 UI 单元测试使用。
 
-SDL3 与 Dear ImGui 由 CMake `FetchContent` 下载并固定版本，首次配置需要能够访问 GitHub。Direct3D 11 使用 Windows SDK/MinGW 自带的系统库。后续将在此基础上接入 FFmpeg、网络协议和业务模块。
+SDL3 与 Dear ImGui 由 CMake `FetchContent` 下载并固定版本，首次配置需要能够访问 GitHub。Direct3D 11、Media Foundation 与 WIC 使用 Windows SDK/MinGW 自带的系统库。H.264 优先使用 Windows 解码器，不兼容时自动切换到 FFmpeg；MP4/MKV 也由 FFmpeg 直接封装机载码流，因此请把 `ffmpeg.exe` 加入 `PATH`。JPEG 图传、PNG 截图和“原始码流”录制不依赖 FFmpeg。
 
 ## 命令行构建
 
@@ -40,6 +40,13 @@ ctest --preset debug
 - `Esc`：在第一视角图传和整页设置之间切换；
 - `F6`：切换 READY 安全状态；
 - `Tab`：显示或隐藏输入 HUD。
+
+## 运行时后端
+
+- 手动连接地址填写机载端控制端口，例如 `192.168.1.10:6000`；未经过 mDNS 发现时，图传端口按“控制端口减 1000”推导，因此默认对应 `5000`。
+- mDNS 浏览 `_pip-link._udp.local`，并读取机载端公布的 `control_port` 与 `video_port`。
+- 用户设置、审计日志和导出的诊断文件保存在 `%LOCALAPPDATA%\PIP-Link`；录像与截图写入界面中选择的目录。
+- 连接、录像和错误状态由真实后端状态机驱动。开发者控制台输入 `help` 可以查看当前支持的诊断命令。
 
 ## 在 CLion 中打开
 

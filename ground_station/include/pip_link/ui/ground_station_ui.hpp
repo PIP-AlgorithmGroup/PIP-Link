@@ -125,12 +125,12 @@ private:
     std::array<float, 120> fps_history_{};
     std::array<float, 120> latency_history_{};
     std::array<char, 128> service_name_{"_pip-link._udp.local"};
-    std::array<char, 128> manual_address_{"192.168.1.10:5800"};
+    std::array<char, 128> manual_address_{"192.168.1.10:6000"};
     std::array<char, 260> recording_directory_{"recordings"};
     std::array<char, 128> audit_filter_{};
     std::array<char, 256> console_command_{};
     std::vector<std::string> console_lines_{"PIP-Link developer console", "输入 help 查看后端命令"};
-    std::string feedback_{"前端已就绪，后端接口等待实现"};
+    std::string feedback_{"地面端已就绪"};
     core::DebouncedAction video_settings_debounce_{0.12F};
 };
 

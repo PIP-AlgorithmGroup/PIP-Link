@@ -420,7 +420,8 @@ void GroundStationUi::draw_video_page(float scale) {
     constexpr const char* displays[] = {"主显示器", "显示器 2", "显示器 3"};
     constexpr const char* qualities[] = {"低", "中", "高", "超高"};
     constexpr const char* encoders[] = {"JPEG", "H.264"};
-    constexpr const char* decoders[] = {"自动选择", "D3D11VA", "软件解码"};
+    constexpr const char* decoders[] = {
+        "自动（Windows / FFmpeg）", "Windows Media Foundation", "FFmpeg 软件解码"};
     const ColumnLayout layout = columns(scale);
 
     begin_card("StreamSettings", {layout.width, 390.0F * scale});

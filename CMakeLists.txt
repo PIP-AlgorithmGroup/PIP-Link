@@ -100,6 +100,9 @@ if(PIP_LINK_BUILD_GUI)
 
     add_library(pip_link_desktop STATIC
         ground_station/src/app/application.cpp
+        ground_station/src/backend/media_pipeline.cpp
+        ground_station/src/backend/protocol_codec.cpp
+        ground_station/src/backend/ground_station_backend_runtime.cpp
         ground_station/src/backend/ground_station_backend_stub.cpp
         ground_station/src/platform/desktop_window.cpp
         ground_station/src/ui/control_input_mapping.cpp
@@ -111,7 +114,8 @@ if(PIP_LINK_BUILD_GUI)
     )
     target_link_libraries(pip_link_desktop
         PUBLIC pip_link_core
-        PRIVATE pip_link_imgui SDL3::SDL3 d3d11 dxgi
+        PRIVATE pip_link_imgui SDL3::SDL3 d3d11 dxgi ole32 windowscodecs
+                mf mfplat mfuuid mfreadwrite shlwapi ws2_32 dnsapi shell32
     )
     if(MSVC)
         target_compile_options(pip_link_desktop PRIVATE /W4 /permissive- /utf-8)
