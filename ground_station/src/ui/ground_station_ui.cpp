@@ -757,6 +757,7 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
             }
             console_command_.fill('\0');
         }
+        ImGui::SetKeyboardFocusHere(-1);
     }
     ImGui::End();
     ImGui::PopStyleColor(12);
