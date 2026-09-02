@@ -108,12 +108,14 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
     const float button_bottom = mouse_body_min.y + 39.0F * unit;
     const ImVec2 side_button_min{mouse_body_min.x - 10.0F * unit,
                                  mouse_body_min.y + 48.0F * unit};
+    constexpr std::array<std::size_t, 2> side_button_indices{4, 3};
+    constexpr std::array<const char*, 2> side_button_labels{"5", "4"};
 
     for (std::size_t index = 0; index < 2; ++index) {
         const float top = side_button_min.y + static_cast<float>(index) * 21.0F * unit;
         draw->AddRectFilled({side_button_min.x, top},
                             {mouse_body_min.x + 5.0F * unit, top + 16.0F * unit},
-                            part_color(activity[3 + index]), 5.0F * unit);
+                            part_color(activity[side_button_indices[index]]), 5.0F * unit);
     }
 
     draw->AddRectFilled({mouse_body_min.x, mouse_body_min.y + 3.0F * unit},
@@ -153,11 +155,14 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
                            mouse_body_min.y + 34.0F * unit};
     const float wheel_middle = (wheel_min.y + wheel_max.y) * 0.5F;
     draw->AddRectFilled(wheel_min, {wheel_max.x, wheel_middle - 0.5F * unit},
-                        part_color(std::max(activity[1], activity[5])), 6.0F * unit,
+                        part_color(activity[5]), 6.0F * unit,
                         ImDrawFlags_RoundCornersTop);
     draw->AddRectFilled({wheel_min.x, wheel_middle + 0.5F * unit}, wheel_max,
-                        part_color(std::max(activity[1], activity[6])), 6.0F * unit,
+                        part_color(activity[6]), 6.0F * unit,
                         ImDrawFlags_RoundCornersBottom);
+    const ImU32 wheel_outline_color = part_color(activity[1]);
+    draw->AddRect(wheel_min, wheel_max, wheel_outline_color, 6.0F * unit, 0,
+                  (1.0F + activity[1]) * unit);
     const ImU32 wheel_mark = IM_COL32(
         229, 241, 247, static_cast<int>(220.0F * opacity));
     draw->AddLine({center.x - 2.8F * unit, wheel_min.y + 7.0F * unit},
@@ -173,11 +178,10 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
 
     for (std::size_t index = 0; index < 2; ++index) {
         const float top = side_button_min.y + static_cast<float>(index) * 21.0F * unit;
-        const char* label = index == 0 ? "4" : "5";
         draw->AddText(ImGui::GetFont(), button_font_size,
                       {side_button_min.x + 2.0F * unit, top + 1.0F * unit},
                       IM_COL32(224, 237, 244, static_cast<int>(215.0F * opacity)),
-                      label);
+                      side_button_labels[index]);
     }
 
     const ImVec2 movement_origin{center.x, mouse_body_min.y + 82.0F * unit};
