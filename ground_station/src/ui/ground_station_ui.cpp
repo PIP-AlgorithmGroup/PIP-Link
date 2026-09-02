@@ -395,10 +395,17 @@ void GroundStationUi::draw(float delta_seconds, float display_scale) {
         ImGui::IsMouseDown(ImGuiMouseButton_Right),
         ImGui::IsMouseDown(3), ImGui::IsMouseDown(4),
     };
-    for (std::size_t index = 0; index < mouse_button_activity_.size(); ++index) {
-        mouse_button_activity_[index] = animate_toward(
-            mouse_button_activity_[index], mouse_down[index] ? 1.0F : 0.0F,
+    for (std::size_t index = 0; index < mouse_down.size(); ++index) {
+        mouse_input_activity_[index] = animate_toward(
+            mouse_input_activity_[index], mouse_down[index] ? 1.0F : 0.0F,
             delta_seconds, mouse_down[index] ? 0.035F : 0.10F);
+    }
+    const float mouse_wheel = ImGui::GetIO().MouseWheel;
+    for (std::size_t index = 0; index < 2; ++index) {
+        const bool triggered = index == 0 ? mouse_wheel > 0.0F : mouse_wheel < 0.0F;
+        float& activity = mouse_input_activity_[mouse_down.size() + index];
+        activity = triggered ? 1.0F
+                             : animate_toward(activity, 0.0F, delta_seconds, 0.10F);
     }
     const auto key_visuals = protocol_key_visuals();
     for (std::size_t index = 0; index < key_activity_.size(); ++index) {
@@ -597,15 +604,16 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         draw->AddLine(mouse_center, dot, color_with_alpha(accent, opacity * 0.55F), 2.0F * unit);
         draw->AddCircleFilled(dot, 5.5F * unit, color_with_alpha(accent, opacity));
 
-        constexpr std::array<const char*, 5> mouse_labels{"L", "M", "R", "M4", "M5"};
+        constexpr std::array<const char*, 7> mouse_labels{
+            "L", "M", "R", "M4", "M5", "↑", "↓"};
         float mouse_chip_x = p0.x + 122.0F * unit;
         for (std::size_t index = 0; index < mouse_labels.size(); ++index) {
-            const float chip_w = (index < 3 ? 31.0F : 38.0F) * unit;
+            const float chip_w = (index == 3 || index == 4 ? 38.0F : 31.0F) * unit;
             const ImVec2 c0{mouse_chip_x, p0.y + 29.0F * unit};
             const ImVec2 c1{c0.x + chip_w, c0.y + 27.0F * unit};
             const ImVec4 chip_color = blend_color(
                 {43.0F / 255.0F, 54.0F / 255.0F, 65.0F / 255.0F, 185.0F / 255.0F},
-                accent, mouse_button_activity_[index]);
+                accent, mouse_input_activity_[index]);
             draw->AddRectFilled(c0, c1, color_with_alpha(chip_color, opacity),
                                 5.0F * unit);
             const ImVec2 label_size = ImGui::GetFont()->CalcTextSizeA(
@@ -617,12 +625,10 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
                           mouse_labels[index]);
             mouse_chip_x += chip_w + 5.0F * unit;
         }
-        const char* movement = std::abs(io.MouseWheel) > 0.01F
-                                   ? (io.MouseWheel > 0.0F ? "WHEEL  ↑" : "WHEEL  ↓")
-                                   : "MOUSE VECTOR";
         draw->AddText(ImGui::GetFont(), hud_font_size,
                       {p0.x + 122.0F * unit, p0.y + 70.0F * unit},
-                      IM_COL32(180, 197, 207, static_cast<int>(230.0F * opacity)), movement);
+                      IM_COL32(180, 197, 207, static_cast<int>(230.0F * opacity)),
+                      "MOUSE VECTOR");
 
         draw->AddLine({p0.x + 14.0F * unit, p0.y + 116.0F * unit},
                       {p1.x - 14.0F * unit, p0.y + 116.0F * unit},

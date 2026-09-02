@@ -149,7 +149,7 @@ private:
     double display_confirmation_deadline_{0.0};
     std::array<int, 11> key_bindings_{};
     std::array<float, 7> tab_hover_{};
-    std::array<float, 5> mouse_button_activity_{};
+    std::array<float, 7> mouse_input_activity_{};
     std::array<float, 71> key_activity_{};
     std::array<float, 120> fps_history_{};
     std::array<float, 120> latency_history_{};
