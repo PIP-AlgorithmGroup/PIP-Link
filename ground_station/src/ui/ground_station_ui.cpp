@@ -887,17 +887,27 @@ void GroundStationUi::draw_settings_tabs(float delta_seconds, float scale) {
 }
 
 void GroundStationUi::draw_console(float delta_seconds, float scale) {
-    const float target_height = console_open_ ? 290.0F * scale : 0.0F;
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    constexpr float minimum_console_height = 210.0F;
+    const float maximum_console_height = std::max(
+        minimum_console_height * scale, viewport->WorkSize.y - 90.0F * scale);
+    const float preferred_height = std::clamp(
+        console_preferred_height_ * scale,
+        minimum_console_height * scale, maximum_console_height);
+    const float target_height = console_open_ ? preferred_height : 0.0F;
     console_height_ += (target_height - console_height_) *
                        (1.0F - std::exp(-delta_seconds / 0.08F));
     if (std::abs(console_height_ - target_height) < 0.5F) console_height_ = target_height;
-    if (console_height_ < 1.0F) return;
+    if (console_height_ < 1.0F) {
+        console_resize_hover_ = 0.0F;
+        return;
+    }
 
-    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const float rendered_height = std::round(console_height_);
     ImGui::SetNextWindowPos(viewport->WorkPos);
-    ImGui::SetNextWindowSize({viewport->WorkSize.x, console_height_});
+    ImGui::SetNextWindowSize({viewport->WorkSize.x, rendered_height});
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha,
-                        std::clamp(console_height_ / (290.0F * scale), 0.0F, 1.0F));
+                        std::clamp(console_height_ / preferred_height, 0.0F, 1.0F));
     ImGui::PushStyleColor(ImGuiCol_WindowBg, {0.94F, 0.96F, 0.97F, 0.99F});
     ImGui::PushStyleColor(ImGuiCol_ChildBg, {0.99F, 1.00F, 1.00F, 1.00F});
     ImGui::PushStyleColor(ImGuiCol_Text, text_primary);
@@ -912,8 +922,11 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
     ImGui::PushStyleColor(ImGuiCol_ButtonActive, {0.62F, 0.77F, 0.83F, 1.00F});
     constexpr ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings;
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoSavedSettings |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
     ImGui::Begin("##DeveloperConsole", nullptr, flags);
+    ImGui::SetScrollX(0.0F);
+    ImGui::SetScrollY(0.0F);
     ImGui::TextColored({0.0F, 0.82F, 1.0F, 1.0F}, "开发者控制台");
     ImGui::SameLine();
     ImGui::TextDisabled("设置与控制输入已暂停");
@@ -922,7 +935,11 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
     ImGui::SameLine();
     if (ImGui::SmallButton("关闭")) console_open_ = false;
     ImGui::Separator();
-    ImGui::BeginChild("##ConsoleOutput", {0.0F, -38.0F * scale}, ImGuiChildFlags_Borders,
+    const float resize_handle_height = 12.0F * scale;
+    const float output_height = std::max(
+        1.0F, std::floor(ImGui::GetContentRegionAvail().y - ImGui::GetFrameHeight() -
+                         ImGui::GetStyle().ItemSpacing.y - resize_handle_height));
+    ImGui::BeginChild("##ConsoleOutput", {0.0F, output_height}, ImGuiChildFlags_Borders,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     for (const auto& line : console_lines_) ImGui::TextUnformatted(line.c_str());
     const float console_scroll_max = ImGui::GetScrollMaxY();
@@ -952,6 +969,38 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
         }
         ImGui::SetKeyboardFocusHere(-1);
     }
+
+    const ImVec2 window_position = ImGui::GetWindowPos();
+    const ImVec2 content_min = ImGui::GetWindowContentRegionMin();
+    const ImVec2 content_max = ImGui::GetWindowContentRegionMax();
+    const ImVec2 resize_position{
+        window_position.x + content_min.x,
+        window_position.y + content_max.y - resize_handle_height};
+    ImGui::SetCursorScreenPos(resize_position);
+    ImGui::InvisibleButton(
+        "##ConsoleResizeHandle",
+        {content_max.x - content_min.x, resize_handle_height});
+    const bool resize_hovered = ImGui::IsItemHovered();
+    const bool resizing = ImGui::IsItemActive();
+    if (resize_hovered || resizing) ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeNS);
+    console_resize_hover_ = animate_toward(
+        console_resize_hover_, resize_hovered || resizing ? 1.0F : 0.0F,
+        delta_seconds, 0.06F);
+    if (resizing && ImGui::GetIO().MouseDelta.y != 0.0F) {
+        const float maximum_logical_height = maximum_console_height / scale;
+        console_preferred_height_ = std::clamp(
+            console_preferred_height_ + ImGui::GetIO().MouseDelta.y / scale,
+            minimum_console_height, maximum_logical_height);
+        console_height_ = console_preferred_height_ * scale;
+    }
+    const ImVec4 resize_line_color = blend_color(
+        {0.62F, 0.70F, 0.75F, 0.80F}, accent, console_resize_hover_);
+    const float line_y = resize_position.y + resize_handle_height * 0.5F;
+    ImGui::GetWindowDrawList()->AddLine(
+        {resize_position.x + 8.0F * scale, line_y},
+        {resize_position.x + content_max.x - content_min.x - 8.0F * scale, line_y},
+        ImGui::GetColorU32(resize_line_color),
+        (1.0F + console_resize_hover_) * scale);
     ImGui::End();
     ImGui::PopStyleColor(12);
     ImGui::PopStyleVar();
