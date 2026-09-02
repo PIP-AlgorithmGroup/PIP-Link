@@ -6,6 +6,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <string>
 
 namespace {
 
@@ -24,6 +25,20 @@ ImGuiWindow* find_child_window(ImGuiWindow* parent, ImGuiID child_id) {
         if (window->ParentWindow == parent && window->ChildId == child_id) return window;
     }
     return nullptr;
+}
+
+std::string active_input_text(ImGuiID input_id) {
+    const ImGuiInputTextState* state = ImGui::GetInputTextState(input_id);
+    if (state == nullptr || state->TextA.Data == nullptr) return {};
+    return {state->TextA.Data, static_cast<std::size_t>(state->TextLen)};
+}
+
+void press_key(pip_link::ui::GroundStationUi& ui, ImGuiKey key) {
+    ImGuiIO& io = ImGui::GetIO();
+    io.AddKeyEvent(key, true);
+    draw_frame(ui);
+    io.AddKeyEvent(key, false);
+    draw_frame(ui);
 }
 
 }  // namespace
@@ -90,6 +105,38 @@ int main() {
         ImGui::DestroyContext();
         return 1;
     }
+
+    io.AddInputCharactersUTF8("status");
+    draw_frame(ui);
+    press_key(ui, ImGuiKey_Enter);
+    io.AddInputCharactersUTF8("draft");
+    draw_frame(ui);
+
+    press_key(ui, ImGuiKey_UpArrow);
+    if (active_input_text(command_id) != "status") {
+        std::cerr << "Up arrow did not select the newest console command.\n";
+        ImGui::DestroyContext();
+        return 1;
+    }
+    press_key(ui, ImGuiKey_UpArrow);
+    if (active_input_text(command_id) != "help") {
+        std::cerr << "Repeated up arrow did not select the older console command.\n";
+        ImGui::DestroyContext();
+        return 1;
+    }
+    press_key(ui, ImGuiKey_DownArrow);
+    if (active_input_text(command_id) != "status") {
+        std::cerr << "Down arrow did not select the newer console command.\n";
+        ImGui::DestroyContext();
+        return 1;
+    }
+    press_key(ui, ImGuiKey_DownArrow);
+    if (active_input_text(command_id) != "draft") {
+        std::cerr << "Down arrow did not restore the unsubmitted console draft.\n";
+        ImGui::DestroyContext();
+        return 1;
+    }
+    press_key(ui, ImGuiKey_Enter);
 
     for (int command = 0; command < 24; ++command) {
         io.AddInputCharactersUTF8("help");

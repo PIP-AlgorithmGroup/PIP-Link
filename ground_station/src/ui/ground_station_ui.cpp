@@ -955,9 +955,20 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
     ImGui::EndChild();
     ImGui::SetNextItemWidth(-1.0F);
     if (ImGui::InputText("##ConsoleCommand", console_command_.data(), console_command_.size(),
-                         ImGuiInputTextFlags_EnterReturnsTrue)) {
+                         ImGuiInputTextFlags_EnterReturnsTrue |
+                             ImGuiInputTextFlags_CallbackHistory,
+                         &GroundStationUi::console_input_callback, this)) {
         const std::string command{console_command_.data()};
         if (!command.empty()) {
+            if (console_history_.empty() || console_history_.back() != command) {
+                constexpr std::size_t maximum_history_size = 100;
+                console_history_.push_back(command);
+                if (console_history_.size() > maximum_history_size) {
+                    console_history_.erase(console_history_.begin());
+                }
+            }
+            console_history_index_ = -1;
+            console_history_draft_.clear();
             console_lines_.push_back("> " + command);
             if (command == "clear") console_lines_.clear();
             else if (command == "close") console_open_ = false;
@@ -1004,6 +1015,39 @@ void GroundStationUi::draw_console(float delta_seconds, float scale) {
     ImGui::End();
     ImGui::PopStyleColor(12);
     ImGui::PopStyleVar();
+}
+
+int GroundStationUi::console_input_callback(ImGuiInputTextCallbackData* data) {
+    if (data == nullptr || data->EventFlag != ImGuiInputTextFlags_CallbackHistory) return 0;
+    auto& ui = *static_cast<GroundStationUi*>(data->UserData);
+
+    if (data->EventKey == ImGuiKey_UpArrow) {
+        if (ui.console_history_.empty()) return 0;
+        if (ui.console_history_index_ < 0) {
+            ui.console_history_draft_.assign(
+                data->Buf, static_cast<std::size_t>(data->BufTextLen));
+            ui.console_history_index_ = static_cast<int>(ui.console_history_.size()) - 1;
+        } else if (ui.console_history_index_ > 0) {
+            --ui.console_history_index_;
+        }
+    } else if (data->EventKey == ImGuiKey_DownArrow) {
+        if (ui.console_history_index_ < 0) return 0;
+        if (ui.console_history_index_ + 1 < static_cast<int>(ui.console_history_.size())) {
+            ++ui.console_history_index_;
+        } else {
+            ui.console_history_index_ = -1;
+        }
+    } else {
+        return 0;
+    }
+
+    const std::string& selected = ui.console_history_index_ >= 0
+                                      ? ui.console_history_[static_cast<std::size_t>(
+                                            ui.console_history_index_)]
+                                      : ui.console_history_draft_;
+    data->DeleteChars(0, data->BufTextLen);
+    data->InsertChars(0, selected.c_str());
+    return 0;
 }
 
 }  // namespace pip_link::ui

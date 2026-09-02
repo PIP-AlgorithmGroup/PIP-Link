@@ -9,6 +9,8 @@
 #include <string>
 #include <vector>
 
+struct ImGuiInputTextCallbackData;
+
 namespace pip_link::ui {
 
 struct GamepadSnapshot final {
@@ -41,6 +43,7 @@ private:
     void draw_settings(float delta_seconds, float scale);
     void draw_settings_tabs(float delta_seconds, float scale);
     void draw_console(float delta_seconds, float scale);
+    static int console_input_callback(ImGuiInputTextCallbackData* data);
     void draw_connection_page(float scale);
     void draw_video_page(float scale);
     void draw_recording_page(float scale);
@@ -158,6 +161,9 @@ private:
     std::array<char, 128> audit_filter_{};
     std::array<char, 256> console_command_{};
     std::vector<std::string> console_lines_{"PIP-Link developer console", "输入 help 查看后端命令"};
+    std::vector<std::string> console_history_{};
+    std::string console_history_draft_{};
+    int console_history_index_{-1};
     GamepadSnapshot gamepad_{};
     std::string feedback_{"地面端已就绪"};
     core::DebouncedAction video_settings_debounce_{0.12F};
