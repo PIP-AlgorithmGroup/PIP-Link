@@ -2,7 +2,7 @@
   <PropertyGroup>
     <InstallerPlatform>x64</InstallerPlatform>
     <Cultures>zh-CN</Cultures>
-    <ProductVersion Condition="'$(ProductVersion)' == ''">3.0.0</ProductVersion>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">3.0.1</ProductVersion>
     <PayloadDirectory Condition="'$(PayloadDirectory)' == ''">$(MSBuildThisFileDirectory)..\..\out\package\PIP-Link-v$(ProductVersion)-win64</PayloadDirectory>
     <OutputName>PIP-Link-v$(ProductVersion)-x64</OutputName>
     <DefineConstants>ProductVersion=$(ProductVersion);PayloadDirectory=$(PayloadDirectory)</DefineConstants>

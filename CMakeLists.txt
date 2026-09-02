@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     PIPLinkGroundStation
-    VERSION 3.0.0
+    VERSION 3.0.1
     DESCRIPTION "PIP-Link C++ first-person robot control client"
     LANGUAGES CXX
 )

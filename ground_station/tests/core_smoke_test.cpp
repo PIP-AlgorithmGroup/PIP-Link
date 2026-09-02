@@ -14,8 +14,8 @@ int main() {
         std::cerr << "Product name must not be empty.\n";
         return 1;
     }
-    if (pip_link::core::BuildInfo::version() != "3.0.0") {
-        std::cerr << "Ground-station release version must be 3.0.0.\n";
+    if (pip_link::core::BuildInfo::version() != "3.0.1") {
+        std::cerr << "Ground-station release version must be 3.0.1.\n";
         return 1;
     }
 

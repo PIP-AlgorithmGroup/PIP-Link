@@ -13,10 +13,10 @@
 
 发布版本必须同时满足：
 
-- `CMakeLists.txt` 中的 `project(... VERSION 3.0.0)`；
-- 构建脚本参数为 `-Version 3.0.0`；
-- Git 标签为 `v3.0.0`；
-- 文件名为 `PIP-Link-v3.0.0-win64.zip` 和 `PIP-Link-v3.0.0-x64.msi`。
+- `CMakeLists.txt` 中的 `project(... VERSION 3.0.1)`；
+- 构建脚本参数为 `-Version 3.0.1`；
+- Git 标签为 `v3.0.1`；
+- 文件名为 `PIP-Link-v3.0.1-win64.zip` 和 `PIP-Link-v3.0.1-x64.msi`。
 
 ## 2. 一键构建 ZIP 和 MSI
 
@@ -24,7 +24,7 @@
 
 ```powershell
 .\packaging\windows\build-release.ps1 `
-  -Version 3.0.0 `
+  -Version 3.0.1 `
   -FfmpegExecutable "E:\ffmpeg\bin\ffmpeg.exe" `
   -FfmpegLicense "E:\ffmpeg\LICENSE.txt"
 ```
@@ -41,8 +41,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 ```text
 out/package/
-├── PIP-Link-v3.0.0-win64.zip
-└── PIP-Link-v3.0.0-x64.msi
+├── PIP-Link-v3.0.1-win64.zip
+└── PIP-Link-v3.0.1-x64.msi
 ```
 
 ## 3. 手工执行各阶段
@@ -62,7 +62,7 @@ Release 程序是 Windows GUI 子系统，启动时不会出现终端窗口。
 ### 3.2 构建便携目录
 
 ```powershell
-$stage = "$PWD\out\package\staging\PIP-Link-v3.0.0-win64"
+$stage = "$PWD\out\package\staging\PIP-Link-v3.0.1-win64"
 cmake --install out/build/release --prefix $stage
 Copy-Item "E:\ffmpeg\bin\ffmpeg.exe" "$stage\ffmpeg.exe"
 Copy-Item "E:\ffmpeg\LICENSE.txt" "$stage\FFmpeg-LICENSE.txt"
@@ -73,7 +73,7 @@ Copy-Item README.md $stage
 便携目录的根目录必须直接包含主程序：
 
 ```text
-PIP-Link-v3.0.0-win64/
+PIP-Link-v3.0.1-win64/
 ├── PIP-Link.exe
 ├── ffmpeg.exe
 ├── README.md
@@ -94,7 +94,7 @@ PIP-Link-v3.0.0-win64/
 ```powershell
 Compress-Archive `
   -Path "$stage\*" `
-  -DestinationPath "$PWD\out\package\PIP-Link-v3.0.0-win64.zip" `
+  -DestinationPath "$PWD\out\package\PIP-Link-v3.0.1-win64.zip" `
   -Force
 ```
 
@@ -104,22 +104,26 @@ Compress-Archive `
 $env:DOTNET_CLI_HOME = "$PWD\out\dotnet-home"
 $env:NUGET_PACKAGES = "$env:DOTNET_CLI_HOME\.nuget\packages"
 
+dotnet clean packaging\windows\PIP-Link.wixproj --configuration Release
+
 dotnet restore packaging\windows\PIP-Link.wixproj `
   --configfile packaging\windows\NuGet.Config
 
 dotnet build packaging\windows\PIP-Link.wixproj `
   --configuration Release `
   --no-restore `
-  -p:ProductVersion=3.0.0 `
+  -p:ProductVersion=3.0.1 `
   -p:PayloadDirectory="$stage"
 
 Copy-Item `
-  packaging\windows\obj\Release\PIP-Link-v3.0.0-x64.msi `
-  out\package\PIP-Link-v3.0.0-x64.msi `
+  packaging\windows\obj\Release\PIP-Link-v3.0.1-x64.msi `
+  out\package\PIP-Link-v3.0.1-x64.msi `
   -Force
 ```
 
 MSI 安装到 `%LOCALAPPDATA%\Programs\PIP-Link`，不要求管理员权限。安装向导提供中文许可页、安装目录、确认页和真实进度条；不要把只有“正在配置”而无进度反馈的旧 MSI 用作发行版。
+
+安装包设置 `MSIFASTINSTALL=1`，避免 Windows Installer 在开始复制文件前同步创建系统还原点。对不修改系统目录和系统服务的仅当前用户安装而言，还原点没有必要，并可能让进度页长时间停留在 0%。
 
 ## 4. 发行验收
 
@@ -135,13 +139,13 @@ MSI 安装到 `%LOCALAPPDATA%\Programs\PIP-Link`，不要求管理员权限。�
 需要记录 MSI 详细日志时执行：
 
 ```powershell
-msiexec /i .\out\package\PIP-Link-v3.0.0-x64.msi /l*v .\out\package\install.log
+msiexec /i .\out\package\PIP-Link-v3.0.1-x64.msi /l*v .\out\package\install.log
 ```
 
 静默验收可执行：
 
 ```powershell
-msiexec /i .\out\package\PIP-Link-v3.0.0-x64.msi /qn /norestart /l*v .\out\package\install-silent.log
+msiexec /i .\out\package\PIP-Link-v3.0.1-x64.msi /qn /norestart /l*v .\out\package\install-silent.log
 ```
 
 返回码 `0` 表示成功；`1602` 表示用户取消，不是构建成功。
@@ -153,18 +157,18 @@ msiexec /i .\out\package\PIP-Link-v3.0.0-x64.msi /qn /norestart /l*v .\out\packa
 ```powershell
 git status
 git push origin master
-git tag -a v3.0.0 -m "PIP-Link v3.0.0"
-git push origin v3.0.0
+git tag -a v3.0.1 -m "PIP-Link v3.0.1"
+git push origin v3.0.1
 ```
 
 创建 Release 并上传两种安装形式：
 
 ```powershell
-gh release create v3.0.0 `
-  "out/package/PIP-Link-v3.0.0-x64.msi" `
-  "out/package/PIP-Link-v3.0.0-win64.zip" `
+gh release create v3.0.1 `
+  "out/package/PIP-Link-v3.0.1-x64.msi" `
+  "out/package/PIP-Link-v3.0.1-win64.zip" `
   --verify-tag `
-  --title "PIP-Link v3.0.0" `
+  --title "PIP-Link v3.0.1" `
   --generate-notes `
   --latest
 ```
@@ -172,7 +176,7 @@ gh release create v3.0.0 `
 最后检查远端信息和附件：
 
 ```powershell
-gh release view v3.0.0 --json url,tagName,name,assets,publishedAt
+gh release view v3.0.1 --json url,tagName,name,assets,publishedAt
 ```
 
-已发布版本不要移动或重建同名标签。需要修复安装器时提升补丁版本，例如 `3.0.1`，重新执行整套流程。
+已发布版本不要移动或重建同名标签。需要再次修复安装器时提升补丁版本，例如 `3.0.2`，重新执行整套流程。

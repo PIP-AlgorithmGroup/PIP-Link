@@ -13,6 +13,7 @@
 
     <Icon Id="PIPLinkIcon" SourceFile="$(var.PayloadDirectory)\assets\icon.ico" />
     <Property Id="ARPPRODUCTICON" Value="PIPLinkIcon" />
+    <Property Id="MSIFASTINSTALL" Value="1" />
 
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
     <UIRef Id="WixUI_ErrorProgressText" />

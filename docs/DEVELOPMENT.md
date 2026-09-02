@@ -38,15 +38,15 @@ Release 目标使用 Windows GUI 子系统，不会打开额外终端窗口。�
 
 ```powershell
 .\packaging\windows\build-release.ps1 `
-  -Version 3.0.0 `
+  -Version 3.0.1 `
   -FfmpegExecutable E:\ffmpeg\bin\ffmpeg.exe `
   -FfmpegLicense E:\ffmpeg\LICENSE.txt
 ```
 
 成功后生成：
 
-- `out/package/PIP-Link-v3.0.0-win64.zip`
-- `out/package/PIP-Link-v3.0.0-x64.msi`
+- `out/package/PIP-Link-v3.0.1-win64.zip`
+- `out/package/PIP-Link-v3.0.1-x64.msi`
 
 MSI 为仅当前用户安装，目标目录是 `%LOCALAPPDATA%\Programs\PIP-Link`，不需要管理员权限，并允许程序继续在自身目录保存配置。
 
