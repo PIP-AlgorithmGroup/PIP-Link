@@ -4,7 +4,11 @@
 #include <windows.h>
 #endif
 
+#if defined(_WIN32) && defined(PIP_LINK_WINDOWS_GUI)
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+#else
 int main() {
+#endif
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);

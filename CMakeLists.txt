@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.24)
 
 project(
     PIPLinkGroundStation
-    VERSION 0.1.0
+    VERSION 3.0.0
     DESCRIPTION "PIP-Link C++ first-person robot control client"
     LANGUAGES CXX
 )
@@ -130,6 +130,13 @@ if(PIP_LINK_BUILD_GUI)
     endif()
 
     add_executable(pip_link_ground_station ground_station/src/main.cpp)
+    set_target_properties(pip_link_ground_station PROPERTIES OUTPUT_NAME "PIP-Link")
+    if(WIN32)
+        set_property(TARGET pip_link_ground_station PROPERTY
+            WIN32_EXECUTABLE "$<CONFIG:Release>")
+        target_compile_definitions(pip_link_ground_station PRIVATE
+            $<$<CONFIG:Release>:PIP_LINK_WINDOWS_GUI>)
+    endif()
     if(WIN32)
         target_sources(pip_link_ground_station PRIVATE
             ground_station/resources/app_icon.rc
@@ -143,9 +150,19 @@ if(PIP_LINK_BUILD_GUI)
     endif()
     target_link_libraries(pip_link_ground_station PRIVATE pip_link_desktop)
     add_custom_command(TARGET pip_link_ground_station POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:pip_link_ground_station>/assets"
+        COMMAND ${CMAKE_COMMAND} -E make_directory
+                "$<TARGET_FILE_DIR:pip_link_ground_station>/assets/fonts"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.bmp"
-                "$<TARGET_FILE_DIR:pip_link_ground_station>/icon.bmp"
+                "$<TARGET_FILE_DIR:pip_link_ground_station>/assets/icon.bmp"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSansCJKsc-Regular.otf"
+                "$<TARGET_FILE_DIR:pip_link_ground_station>/assets/fonts/NotoSansCJKsc-Regular.otf"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/NotoSansCJK-LICENSE.txt"
+                "$<TARGET_FILE_DIR:pip_link_ground_station>/assets/fonts/NotoSansCJK-LICENSE.txt"
         VERBATIM
     )
     if(MINGW)
@@ -155,8 +172,12 @@ if(PIP_LINK_BUILD_GUI)
             -static-libstdc++
         )
     endif()
-    install(TARGETS pip_link_ground_station RUNTIME DESTINATION bin)
-    install(FILES assets/icon.bmp DESTINATION bin)
+    install(TARGETS pip_link_ground_station RUNTIME DESTINATION .)
+    install(FILES assets/icon.bmp assets/icon.ico DESTINATION assets)
+    install(FILES
+        assets/fonts/NotoSansCJKsc-Regular.otf
+        assets/fonts/NotoSansCJK-LICENSE.txt
+        DESTINATION assets/fonts)
 endif()
 
 if(PIP_LINK_BUILD_TESTS)

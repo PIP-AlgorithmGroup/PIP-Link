@@ -12,9 +12,9 @@ int main() {
     const std::filesystem::path root = PIP_LINK_CONFIG_TEST_OUTPUT;
     std::error_code error;
     std::filesystem::remove_all(root, error);
-    std::filesystem::create_directories(root / "PIP-Link", error);
-    SetEnvironmentVariableW(L"LOCALAPPDATA", root.wstring().c_str());
-    std::ofstream settings(root / "PIP-Link" / "settings.ini", std::ios::trunc);
+    std::filesystem::create_directories(root, error);
+    SetEnvironmentVariableW(L"PIP_LINK_DATA_DIRECTORY", root.wstring().c_str());
+    std::ofstream settings(root / "settings.ini", std::ios::trunc);
     settings << "heartbeat_ms=2147483647\n"
              << "reconnect_seconds=-9\n"
              << "mtu=9999\n"
@@ -42,7 +42,7 @@ int main() {
         }
     }
     const auto defaults = pip_link::ui::default_key_bindings();
-    settings.open(root / "PIP-Link" / "settings.ini", std::ios::trunc);
+    settings.open(root / "settings.ini", std::ios::trunc);
     for (std::size_t index = 0; index < 11; ++index) {
         settings << "key_" << index << '=' << defaults[index] << '\n';
     }
@@ -61,6 +61,7 @@ int main() {
             return 1;
         }
     }
+    SetEnvironmentVariableW(L"PIP_LINK_DATA_DIRECTORY", nullptr);
     std::filesystem::remove_all(root, error);
     return 0;
 }

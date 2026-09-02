@@ -35,7 +35,8 @@ void apply_window_icon(SDL_Window* window) {
         return;
     }
 
-    const std::filesystem::path icon_path = std::filesystem::path(base_path) / "icon.bmp";
+    const std::filesystem::path icon_path =
+        std::filesystem::path(base_path) / "assets" / "icon.bmp";
     SDL_Surface* icon = SDL_LoadBMP(icon_path.string().c_str());
     if (icon == nullptr) {
         std::cerr << "Application icon could not be loaded from " << icon_path.string()
@@ -76,6 +77,11 @@ void release_query(ID3D11Query*& query) {
 }
 
 std::filesystem::path find_chinese_font() {
+    if (const char* base_path = SDL_GetBasePath(); base_path != nullptr) {
+        const std::filesystem::path bundled = std::filesystem::path(base_path) /
+            "assets" / "fonts" / "NotoSansCJKsc-Regular.otf";
+        if (std::filesystem::exists(bundled)) return bundled;
+    }
     constexpr const char* candidates[] = {
         "C:/Windows/Fonts/msyh.ttc",
         "C:/Windows/Fonts/simhei.ttf",

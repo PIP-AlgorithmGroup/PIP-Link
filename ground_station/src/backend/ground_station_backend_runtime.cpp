@@ -115,11 +115,15 @@ std::string com_error(const char* action, HRESULT result) {
 
 std::filesystem::path application_data_directory() {
     wchar_t buffer[MAX_PATH]{};
-    const DWORD size = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
-    std::filesystem::path result = size > 0 && size < MAX_PATH
-                                       ? std::filesystem::path(buffer)
-                                       : std::filesystem::current_path();
-    result /= L"PIP-Link";
+    const DWORD size = GetEnvironmentVariableW(L"PIP_LINK_DATA_DIRECTORY", buffer, MAX_PATH);
+    std::filesystem::path result;
+    if (size > 0 && size < MAX_PATH) {
+        result = buffer;
+    } else if (const char* base_path = SDL_GetBasePath(); base_path != nullptr) {
+        result = utf16(base_path);
+    } else {
+        result = std::filesystem::current_path();
+    }
     std::error_code error;
     std::filesystem::create_directories(result, error);
     return result;

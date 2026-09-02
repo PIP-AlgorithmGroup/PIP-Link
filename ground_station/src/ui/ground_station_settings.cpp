@@ -1,5 +1,6 @@
 #include "pip_link/ui/ground_station_ui.hpp"
 
+#include "pip_link/core/build_info.hpp"
 #include "pip_link/core/smooth_scroll.hpp"
 
 #include "pip_link/core/input_validation.hpp"
@@ -1224,7 +1225,8 @@ void GroundStationUi::draw_about_dialog(float scale) {
         ImGui::SetWindowFontScale(1.45F);
         ImGui::TextColored(accent, "PIP-Link");
         ImGui::SetWindowFontScale(1.0F);
-        ImGui::Text("版本 0.1.0");
+        const std::string_view version = core::BuildInfo::version();
+        ImGui::Text("版本 %.*s", static_cast<int>(version.size()), version.data());
         ImGui::TextColored(text_secondary, "C++20 · SDL3 · Dear ImGui · Direct3D 11");
         ImGui::Separator();
         ImGui::TextWrapped("面向机器人的第一视角控制客户端。视频画面始终占据完整操作空间，HUD 只显示键鼠输入、FPS、码率、RTT、丢包率和 READY 状态。");
