@@ -11,7 +11,7 @@
 - Ninja；
 - MSVC 2022 或 MinGW-w64；
 - 可访问 GitHub，用于首次下载固定版本的 SDL3 `3.2.16` 与 Dear ImGui `1.91.9b`；
-- 需要录像时，将 `ffmpeg.exe` 加入 `PATH`。
+- 需要录像时，将 `ffmpeg.exe` 放在程序目录或加入 `PATH`。
 
 ### 命令行构建
 
@@ -28,7 +28,29 @@ cmake --preset release
 cmake --build --preset release
 ```
 
-Debug 可执行文件位于 `out/build/debug/pip_link_ground_station.exe`。
+Release 目标使用 Windows GUI 子系统，不会打开额外终端窗口。中文界面优先加载 `assets/fonts/NotoSansCJKsc-Regular.otf`，仅在发行字体缺失时回退到 Windows 系统字体。
+
+### ZIP 与 MSI 发行包
+
+完整的前置条件、手工分步命令、验收清单和 GitHub Release 操作见 [Windows 打包与发布](RELEASING.md)。
+
+构建机需要 .NET SDK；WiX SDK 会由 `dotnet build` 自动恢复。执行：
+
+```powershell
+.\packaging\windows\build-release.ps1 `
+  -Version 3.0.0 `
+  -FfmpegExecutable E:\ffmpeg\bin\ffmpeg.exe `
+  -FfmpegLicense E:\ffmpeg\LICENSE.txt
+```
+
+成功后生成：
+
+- `out/package/PIP-Link-v3.0.0-win64.zip`
+- `out/package/PIP-Link-v3.0.0-x64.msi`
+
+MSI 为仅当前用户安装，目标目录是 `%LOCALAPPDATA%\Programs\PIP-Link`，不需要管理员权限，并允许程序继续在自身目录保存配置。
+
+Debug 可执行文件位于 `out/build/debug/PIP-Link.exe`。
 
 ### CLion
 

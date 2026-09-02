@@ -87,8 +87,10 @@ version
 
 ## 7. 本地数据
 
-- 设置：`%LOCALAPPDATA%\PIP-Link\settings.ini`
-- 审计日志：`%LOCALAPPDATA%\PIP-Link\audit.jsonl`
-- 诊断和日志导出：`%LOCALAPPDATA%\PIP-Link`
+- 设置：`<程序目录>\settings.ini`
+- 审计日志：`<程序目录>\audit.jsonl`
+- 诊断和日志导出：`<程序目录>`
+
+发行包自带 `assets\fonts\NotoSansCJKsc-Regular.otf`，正常情况下不会读取或依赖系统中文字体；字体缺失时才回退到 Windows 字体目录。
 - 录像和截图：录制页面选定的目录
 
