@@ -134,6 +134,9 @@ if(PIP_LINK_BUILD_GUI)
         target_sources(pip_link_ground_station PRIVATE
             ground_station/resources/app_icon.rc
         )
+        set_property(SOURCE ground_station/resources/app_icon.rc PROPERTY
+            OBJECT_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.ico"
+        )
         target_include_directories(pip_link_ground_station PRIVATE
             ${CMAKE_CURRENT_SOURCE_DIR}/assets
         )
