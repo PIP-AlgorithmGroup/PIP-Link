@@ -158,6 +158,7 @@ struct DesktopWindow::Impl final {
     UINT capture_height{};
     std::size_t capture_read{};
     std::size_t capture_write{};
+    std::chrono::steady_clock::time_point last_capture_submission{};
     float display_scale{1.0F};
     std::unique_ptr<backend::GroundStationBackendRuntime> backend;
     std::unique_ptr<ui::GroundStationUi> ui;
@@ -353,7 +354,20 @@ struct DesktopWindow::Impl final {
         if (!backend) return;
         const bool needed = backend->needs_composited_frame();
         harvest_capture_frames(needed);
-        if (!needed) return;
+        if (!needed) {
+            last_capture_submission = {};
+            return;
+        }
+        const backend::RecordingState recording = backend->runtime_state().recording;
+        const bool recording_active = recording == backend::RecordingState::starting ||
+                                      recording == backend::RecordingState::recording;
+        const auto now = std::chrono::steady_clock::now();
+        constexpr auto capture_interval = std::chrono::milliseconds(33);
+        if (recording_active && last_capture_submission !=
+                                    std::chrono::steady_clock::time_point{} &&
+            now - last_capture_submission < capture_interval) {
+            return;
+        }
         ID3D11Texture2D* back_buffer = nullptr;
         if (FAILED(swap_chain->GetBuffer(0, IID_PPV_ARGS(&back_buffer)))) return;
         D3D11_TEXTURE2D_DESC description{};
@@ -371,6 +385,7 @@ struct DesktopWindow::Impl final {
             context->End(slot.ready);
             slot.pending = true;
             capture_write = (capture_write + 1) % capture_slots.size();
+            last_capture_submission = now;
         }
         back_buffer->Release();
     }
@@ -542,8 +557,6 @@ int DesktopWindow::run() {
         impl_->update_gamepad();
         impl_->ui->draw(delta_seconds, impl_->display_scale);
         impl_->update_mouse_capture();
-        io.MouseDrawCursor = impl_->backend->needs_composited_frame() &&
-                             !impl_->ui->wants_relative_mouse_mode();
         if (impl_->ui->quit_requested()) {
             running = false;
         }

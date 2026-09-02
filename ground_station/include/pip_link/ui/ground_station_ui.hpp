@@ -147,6 +147,7 @@ private:
     float tab_scroll_target_{0.0F};
     float device_scroll_target_{0.0F};
     double recording_started_at_{0.0};
+    double recording_overlay_started_at_{0.0};
     double scanning_started_at_{0.0};
     double display_confirmation_deadline_{0.0};
     std::array<int, 11> key_bindings_{};

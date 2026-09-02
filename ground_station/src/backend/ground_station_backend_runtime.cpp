@@ -2200,7 +2200,7 @@ void GroundStationBackendRuntime::submit_composited_frame(CompositedFrame frame)
         }
         std::string error;
         if (!impl_->recorder_.start(directory, format, quality, split_minutes,
-                                    frame.width, frame.height, 60, error)) {
+                                    frame.width, frame.height, 30, error)) {
             {
                 std::lock_guard lock(impl_->state_mutex_);
                 impl_->state_.recording = RecordingState::failed;

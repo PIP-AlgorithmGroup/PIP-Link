@@ -564,45 +564,89 @@ void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
     const backend::RecordingState current = backend_.runtime_state().recording;
     const bool active = current == backend::RecordingState::starting ||
                         current == backend::RecordingState::recording;
+    const bool capture_requested = backend_.needs_composited_frame();
+    if (active && recording_overlay_started_at_ <= 0.0) {
+        recording_overlay_started_at_ = ImGui::GetTime();
+    }
     recording_overlay_visibility_ = animate_toward(
         recording_overlay_visibility_, active ? 1.0F : 0.0F, delta_seconds, 0.10F);
-    if (recording_overlay_visibility_ < 0.01F) return;
+    if (!active && recording_overlay_visibility_ < 0.01F && !capture_requested) {
+        recording_overlay_started_at_ = 0.0;
+        return;
+    }
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
-    const ImVec2 min = viewport->Pos;
-    const ImVec2 max{viewport->Pos.x + viewport->Size.x,
-                     viewport->Pos.y + viewport->Size.y};
-    const float edge = 30.0F * scale;
-    const float alpha = 0.30F * recording_overlay_visibility_;
-    const ImU32 blue = ImGui::GetColorU32({0.00F, 0.55F, 1.00F, alpha});
-    const ImU32 clear = ImGui::GetColorU32({0.00F, 0.55F, 1.00F, 0.0F});
     ImDrawList* draw = ImGui::GetForegroundDrawList();
-    draw->AddRectFilledMultiColor(min, {max.x, min.y + edge},
-                                  blue, blue, clear, clear);
-    draw->AddRectFilledMultiColor({min.x, max.y - edge}, max,
-                                  clear, clear, blue, blue);
-    draw->AddRectFilledMultiColor(min, {min.x + edge, max.y},
-                                  blue, clear, clear, blue);
-    draw->AddRectFilledMultiColor({max.x - edge, min.y}, max,
-                                  clear, blue, blue, clear);
+    const float visibility = recording_overlay_visibility_;
+    const float slide = visibility * visibility * (3.0F - 2.0F * visibility);
+    const float badge_width = 214.0F * scale;
+    const float badge_height = 42.0F * scale;
+    const float visible_y = viewport->Pos.y + 16.0F * scale;
+    const float hidden_y = viewport->Pos.y - badge_height - 8.0F * scale;
+    const float badge_y = hidden_y + (visible_y - hidden_y) * slide;
+    const float badge_x = viewport->Pos.x + (viewport->Size.x - badge_width) * 0.5F;
+    const ImVec2 badge_min{badge_x, badge_y};
+    const ImVec2 badge_max{badge_x + badge_width, badge_y + badge_height};
+    draw->AddRectFilled({badge_min.x + 2.0F * scale, badge_min.y + 4.0F * scale},
+                        {badge_max.x + 2.0F * scale, badge_max.y + 4.0F * scale},
+                        ImGui::GetColorU32({0.01F, 0.04F, 0.07F, 0.18F * visibility}),
+                        12.0F * scale);
+    draw->AddRectFilled(badge_min, badge_max,
+                        ImGui::GetColorU32({0.04F, 0.08F, 0.12F, 0.94F * visibility}),
+                        12.0F * scale);
+    draw->AddRect(badge_min, badge_max,
+                  ImGui::GetColorU32({0.10F, 0.65F, 0.95F, 0.55F * visibility}),
+                  12.0F * scale, 0, 1.0F * scale);
+
+    const double elapsed_seconds = std::max(
+        0.0, ImGui::GetTime() - recording_overlay_started_at_);
+    const int elapsed = static_cast<int>(elapsed_seconds);
+    char duration[16]{};
+    std::snprintf(duration, sizeof(duration), "%02d:%02d:%02d", elapsed / 3600,
+                  (elapsed / 60) % 60, elapsed % 60);
+    const float center_y = badge_y + badge_height * 0.5F;
+    const float pulse = 0.72F + 0.28F *
+        std::sin(static_cast<float>(ImGui::GetTime()) * 5.0F);
+    draw->AddCircleFilled({badge_x + 20.0F * scale, center_y}, 4.5F * scale,
+                          ImGui::GetColorU32({1.00F, 0.22F, 0.18F,
+                                              visibility * pulse}), 20);
+    draw->AddText({badge_x + 33.0F * scale,
+                   center_y - ImGui::GetFontSize() * 0.5F},
+                  ImGui::GetColorU32({0.94F, 0.97F, 1.00F, visibility}), "录制中");
+    draw->AddLine({badge_x + 103.0F * scale, badge_y + 10.0F * scale},
+                  {badge_x + 103.0F * scale, badge_max.y - 10.0F * scale},
+                  ImGui::GetColorU32({0.36F, 0.45F, 0.53F, 0.65F * visibility}),
+                  1.0F * scale);
+    draw->AddText({badge_x + 118.0F * scale,
+                   center_y - ImGui::GetFontSize() * 0.5F},
+                  ImGui::GetColorU32({0.65F, 0.86F, 1.00F, visibility}), duration);
 
     const ImGuiIO& io = ImGui::GetIO();
-    if (!wants_relative_mouse_mode() && ImGui::IsMousePosValid(&io.MousePos)) {
-        const float pulse = 0.92F + 0.08F *
+    if (capture_requested && !wants_relative_mouse_mode() &&
+        ImGui::IsMousePosValid(&io.MousePos)) {
+        const float cursor_visibility = active ? visibility : 1.0F;
+        const float cursor_pulse = 0.92F + 0.08F *
             std::sin(static_cast<float>(ImGui::GetTime()) * 4.0F);
         for (int layer = 7; layer >= 1; --layer) {
             const float ratio = static_cast<float>(layer) / 7.0F;
-            const float radius = (9.0F + ratio * 20.0F) * scale * pulse;
+            const float radius = (9.0F + ratio * 20.0F) * scale * cursor_pulse;
             const float layer_alpha = 0.045F * (1.0F - ratio) *
-                                      recording_overlay_visibility_;
+                                      cursor_visibility;
             draw->AddCircleFilled(io.MousePos, radius,
                                   ImGui::GetColorU32({0.00F, 0.63F, 1.00F,
                                                       layer_alpha}), 32);
         }
         draw->AddCircle(io.MousePos, 11.0F * scale,
                         ImGui::GetColorU32({0.25F, 0.82F, 1.00F,
-                                           0.82F * recording_overlay_visibility_}),
+                                           0.82F * cursor_visibility}),
                         32, 1.5F * scale);
+        const ImVec2 cursor{io.MousePos.x + 2.0F * scale,
+                            io.MousePos.y + 2.0F * scale};
+        draw->AddTriangleFilled(cursor,
+                                {cursor.x + 4.0F * scale, cursor.y + 16.0F * scale},
+                                {cursor.x + 9.0F * scale, cursor.y + 10.0F * scale},
+                                ImGui::GetColorU32({0.12F, 0.72F, 1.00F,
+                                                   0.78F * cursor_visibility}));
     }
 }
 
