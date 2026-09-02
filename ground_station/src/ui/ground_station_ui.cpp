@@ -23,20 +23,6 @@ constexpr ImVec4 success{0.04F, 0.45F, 0.25F, 1.00F};
 constexpr ImVec4 warning{0.66F, 0.32F, 0.02F, 1.00F};
 constexpr ImVec4 danger{0.70F, 0.13F, 0.10F, 1.00F};
 
-enum BindingIndex : int {
-    toggle_ready_binding,
-    toggle_hud_binding,
-    toggle_console_binding,
-    toggle_settings_binding,
-    forward_binding,
-    backward_binding,
-    left_binding,
-    right_binding,
-    sprint_binding,
-    special_one_binding,
-    special_two_binding,
-};
-
 struct SettingsTab final {
     const char* label;
     const char* title;
@@ -63,6 +49,11 @@ float animate_toward(float current, float target, float delta_seconds, float tau
     const float step = 1.0F - std::exp(-std::clamp(delta_seconds, 0.0F, 0.1F) / tau);
     const float value = current + (target - current) * step;
     return std::abs(target - value) < 0.001F ? target : value;
+}
+
+bool shortcut_pressed(int key) {
+    return key >= ImGuiKey_NamedKey_BEGIN && key < ImGuiKey_COUNT &&
+           ImGui::IsKeyPressed(static_cast<ImGuiKey>(key), false);
 }
 
 ImVec4 blend_color(const ImVec4& from, const ImVec4& to, float amount) {
@@ -224,11 +215,7 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
 }  // namespace
 
 GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backend_(backend) {
-    key_bindings_ = {
-        ImGuiKey_F6, ImGuiKey_Tab, ImGuiKey_GraveAccent, ImGuiKey_Escape,
-        ImGuiKey_W, ImGuiKey_S, ImGuiKey_A, ImGuiKey_D,
-        ImGuiKey_LeftShift, ImGuiKey_E, ImGuiKey_F,
-    };
+    key_bindings_ = default_key_bindings();
     const backend::BackendPreferences settings = backend_.preferences();
     heartbeat_ms_ = settings.heartbeat_ms;
     reconnect_seconds_ = settings.reconnect_seconds;
@@ -285,8 +272,10 @@ GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backe
                   settings.last_endpoint.c_str());
     recording_directory_ = settings.recording_directory;
     if (settings.key_bindings.size() == key_bindings_.size()) {
-        std::copy(settings.key_bindings.begin(), settings.key_bindings.end(),
-                  key_bindings_.begin());
+        key_bindings_.fill(unbound_key);
+        for (std::size_t index = 0; index < settings.key_bindings.size(); ++index) {
+            (void)assign_key_binding(key_bindings_, index, settings.key_bindings[index]);
+        }
     }
     remote_parameters_revision_ = backend_.runtime_state().remote_parameters_revision;
     screenshot_revision_ = backend_.runtime_state().screenshot_revision;
@@ -479,23 +468,45 @@ void GroundStationUi::draw(float delta_seconds, float display_scale) {
     ImGuiIO& io = ImGui::GetIO();
     const bool shortcuts_enabled = !io.WantTextInput && rebinding_action_ < 0;
     if (shortcuts_enabled && !display_confirmation_open_ && !about_open_ &&
-        ImGui::IsKeyPressed(static_cast<ImGuiKey>(key_bindings_[toggle_settings_binding]), false)) {
+        shortcut_pressed(key_bindings_[toggle_settings_binding])) {
         if (settings_open_) settings_open_ = false;
         else open_settings();
     }
     if (shortcuts_enabled && !settings_open_ && !console_open_ &&
-        ImGui::IsKeyPressed(static_cast<ImGuiKey>(key_bindings_[toggle_ready_binding]), false)) {
+        shortcut_pressed(key_bindings_[toggle_ready_binding])) {
         toggle_ready();
     }
     if (shortcuts_enabled && !settings_open_ &&
-        ImGui::IsKeyPressed(static_cast<ImGuiKey>(key_bindings_[toggle_hud_binding]), false)) {
+        shortcut_pressed(key_bindings_[toggle_hud_binding])) {
         show_input_hud_ = !show_input_hud_;
         apply_interface_settings();
     }
     if (shortcuts_enabled &&
-        ImGui::IsKeyPressed(static_cast<ImGuiKey>(key_bindings_[toggle_console_binding]), false)) {
+        shortcut_pressed(key_bindings_[toggle_console_binding])) {
         if (!console_open_) leave_ready("打开控制台，已自动退出 READY");
         console_open_ = !console_open_;
+    }
+    if (shortcuts_enabled && !display_confirmation_open_ && !about_open_) {
+        const bool start_pressed = shortcut_pressed(key_bindings_[start_recording_binding]);
+        const bool pause_pressed = shortcut_pressed(key_bindings_[pause_recording_binding]);
+        const bool stop_pressed = shortcut_pressed(key_bindings_[stop_recording_binding]);
+        switch (resolve_recording_shortcut(recording_state_, start_pressed,
+                                           pause_pressed, stop_pressed)) {
+        case RecordingShortcutAction::start:
+            start_recording_action();
+            break;
+        case RecordingShortcutAction::toggle_pause:
+            toggle_recording_paused_action();
+            break;
+        case RecordingShortcutAction::stop:
+            stop_recording_action();
+            break;
+        case RecordingShortcutAction::none:
+            break;
+        }
+        if (shortcut_pressed(key_bindings_[take_screenshot_binding])) {
+            take_screenshot_action();
+        }
     }
 
     const auto telemetry = backend_.telemetry();
@@ -635,12 +646,10 @@ void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
         recording_stop_hover_, stop_hovered ? 1.0F : 0.0F, delta_seconds, 0.06F);
 
     if (pause_clicked) {
-        const backend::MediaActionResult result = backend_.set_recording_paused(!paused);
-        set_feedback(result.message);
+        toggle_recording_paused_action();
     }
     if (stop_clicked) {
-        backend_.stop_recording();
-        set_feedback("正在结束并保存录像");
+        stop_recording_action();
     }
 
     draw->AddRectFilled({badge_min.x + 2.0F * scale, badge_min.y + 4.0F * scale},

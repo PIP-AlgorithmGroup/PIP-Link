@@ -53,6 +53,13 @@ constexpr std::array<int, 7> action_default_keys{
     ImGuiKey_LeftShift, ImGuiKey_E, ImGuiKey_F,
 };
 
+constexpr std::array<int, binding_count> binding_defaults{
+    ImGuiKey_F6, ImGuiKey_Tab, ImGuiKey_GraveAccent, ImGuiKey_Escape,
+    ImGuiKey_W, ImGuiKey_S, ImGuiKey_A, ImGuiKey_D,
+    ImGuiKey_LeftShift, ImGuiKey_E, ImGuiKey_F,
+    ImGuiKey_F9, ImGuiKey_F10, unbound_key, unbound_key,
+};
+
 void set_protocol_bit(backend::ControlInput& input, int bit) noexcept {
     input.keyboard[static_cast<std::size_t>(bit / 8)] |=
         static_cast<std::uint8_t>(1U << (bit % 8));
@@ -64,8 +71,60 @@ std::span<const KeyVisual> protocol_key_visuals() noexcept {
     return key_visuals;
 }
 
+std::array<int, binding_count> default_key_bindings() noexcept {
+    return binding_defaults;
+}
+
+bool key_bindings_may_share(std::size_t first, std::size_t second) noexcept {
+    const bool first_is_start = first == start_recording_binding;
+    const bool second_is_start = second == start_recording_binding;
+    const bool first_is_terminal = first == pause_recording_binding ||
+                                   first == stop_recording_binding;
+    const bool second_is_terminal = second == pause_recording_binding ||
+                                    second == stop_recording_binding;
+    return (first_is_start && second_is_terminal) ||
+           (second_is_start && first_is_terminal);
+}
+
+int assign_key_binding(std::span<int> bindings, std::size_t action, int key) noexcept {
+    if (action >= bindings.size()) return 0;
+    int cleared = 0;
+    if (key != unbound_key) {
+        for (std::size_t other = 0; other < bindings.size(); ++other) {
+            if (other != action && bindings[other] == key &&
+                !key_bindings_may_share(action, other)) {
+                bindings[other] = unbound_key;
+                ++cleared;
+            }
+        }
+    }
+    bindings[action] = key;
+    return cleared;
+}
+
+RecordingShortcutAction resolve_recording_shortcut(
+    backend::RecordingState state, bool start_pressed,
+    bool pause_pressed, bool stop_pressed) noexcept {
+    if (state == backend::RecordingState::idle ||
+        state == backend::RecordingState::failed) {
+        return start_pressed ? RecordingShortcutAction::start
+                             : RecordingShortcutAction::none;
+    }
+    if (state == backend::RecordingState::starting) {
+        return stop_pressed ? RecordingShortcutAction::stop
+                            : RecordingShortcutAction::none;
+    }
+    if (state == backend::RecordingState::recording ||
+        state == backend::RecordingState::paused) {
+        if (stop_pressed) return RecordingShortcutAction::stop;
+        if (pause_pressed) return RecordingShortcutAction::toggle_pause;
+    }
+    return RecordingShortcutAction::none;
+}
+
 void map_physical_key(backend::ControlInput& input, int physical_key,
-                      const std::array<int, 11>& bindings) noexcept {
+                      std::span<const int> bindings) noexcept {
+    if (bindings.size() <= special_two_binding) return;
     for (std::size_t index = 0; index < action_protocol_bits.size(); ++index) {
         if (bindings[index + 4] == physical_key) {
             set_protocol_bit(input, action_protocol_bits[index]);

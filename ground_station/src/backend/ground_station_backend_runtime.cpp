@@ -517,9 +517,15 @@ public:
         if (config_.recording_directory.empty()) {
             config_.recording_directory = defaults.recording_directory;
         }
-        if (config_.key_bindings.size() != 11 ||
+        if (config_.key_bindings.size() == 11) {
+            config_.key_bindings.resize(15, ImGuiKey_None);
+            config_.key_bindings[11] = ImGuiKey_F9;
+            config_.key_bindings[12] = ImGuiKey_F10;
+        }
+        if (config_.key_bindings.size() != 15 ||
             std::any_of(config_.key_bindings.begin(), config_.key_bindings.end(), [](int key) {
-                return key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_COUNT;
+                return key != ImGuiKey_None &&
+                       (key < ImGuiKey_NamedKey_BEGIN || key >= ImGuiKey_COUNT);
             })) {
             config_.key_bindings.clear();
         }

@@ -668,13 +668,11 @@ void GroundStationUi::draw_video_page(float scale) {
 }
 
 void GroundStationUi::draw_control_page(float scale) {
-    constexpr std::array<const char*, 11> actions{
+    constexpr std::array<const char*, binding_count> actions{
         "切换 READY", "显示输入 HUD", "开发者控制台", "打开设置",
-        "前进", "后退", "左移", "右移", "加速", "动作 1", "动作 2"};
-    constexpr std::array<int, 11> defaults{
-        ImGuiKey_F6, ImGuiKey_Tab, ImGuiKey_GraveAccent, ImGuiKey_Escape,
-        ImGuiKey_W, ImGuiKey_S, ImGuiKey_A, ImGuiKey_D,
-        ImGuiKey_LeftShift, ImGuiKey_E, ImGuiKey_F};
+        "前进", "后退", "左移", "右移", "加速", "动作 1", "动作 2",
+        "开始录制", "截屏", "暂停 / 继续录制", "结束录制"};
+    const auto defaults = default_key_bindings();
     const ColumnLayout layout = columns(scale);
 
     begin_card("InputSettings", {layout.width, 330.0F * scale});
@@ -702,11 +700,15 @@ void GroundStationUi::draw_control_page(float scale) {
     ImGui::TextColored(text_secondary, "当前快捷键");
     ImGui::Text("%s  切换 READY", ImGui::GetKeyName(static_cast<ImGuiKey>(key_bindings_[0])));
     ImGui::Text("%s  设置页面", ImGui::GetKeyName(static_cast<ImGuiKey>(key_bindings_[3])));
+    ImGui::Text("%s  开始录制", ImGui::GetKeyName(
+        static_cast<ImGuiKey>(key_bindings_[start_recording_binding])));
+    ImGui::Text("%s  截屏", ImGui::GetKeyName(
+        static_cast<ImGuiKey>(key_bindings_[take_screenshot_binding])));
     end_card();
 
     ImGui::Dummy({0.0F, layout.gap});
-    begin_card("KeyBindings", {layout.width, 570.0F * scale});
-    section_title("键盘绑定", "按下按钮后，再按新的键完成绑定");
+    begin_card("KeyBindings", {layout.width, 700.0F * scale});
+    section_title("键盘绑定", "左键重新绑定，右键清除；录制可与暂停或结束共用，暂停与结束不能共用");
     if (ImGui::BeginTable("KeyBindingRows", 2, ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("动作", ImGuiTableColumnFlags_WidthStretch);
         ImGui::TableSetupColumn("按键", ImGuiTableColumnFlags_WidthFixed, 145.0F * scale);
@@ -719,9 +721,18 @@ void GroundStationUi::draw_control_page(float scale) {
             ImGui::PushID(index);
             const char* key_name = rebinding_action_ == index
                                        ? "等待按键..."
+                                   : key_bindings_[index] == unbound_key
+                                       ? "未绑定"
                                        : ImGui::GetKeyName(
                                              static_cast<ImGuiKey>(key_bindings_[index]));
             if (ImGui::Button(key_name, {-1.0F, 0.0F})) rebinding_action_ = index;
+            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                (void)assign_key_binding(key_bindings_, index, unbound_key);
+                rebinding_action_ = -1;
+                backend_.save_key_bindings(
+                    std::vector<int>{key_bindings_.begin(), key_bindings_.end()});
+                set_feedback("快捷键已清除");
+            }
             ImGui::PopID();
         }
         ImGui::EndTable();
@@ -734,20 +745,13 @@ void GroundStationUi::draw_control_page(float scale) {
         for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; ++key) {
             if (ImGui::IsKeyPressed(static_cast<ImGuiKey>(key), false)) {
                 const int action = rebinding_action_;
-                const int previous_key = key_bindings_[static_cast<std::size_t>(action)];
-                bool swapped = false;
-                for (int other = 0; other < static_cast<int>(key_bindings_.size()); ++other) {
-                    if (other != action && key_bindings_[static_cast<std::size_t>(other)] == key) {
-                        key_bindings_[static_cast<std::size_t>(other)] = previous_key;
-                        swapped = true;
-                        break;
-                    }
-                }
-                key_bindings_[static_cast<std::size_t>(action)] = key;
+                const int cleared = assign_key_binding(
+                    key_bindings_, static_cast<std::size_t>(action), key);
                 rebinding_action_ = -1;
                 backend_.save_key_bindings(
                     std::vector<int>{key_bindings_.begin(), key_bindings_.end()});
-                set_feedback(swapped ? "按键已与原动作交换并保存" : "键位已更新并保存");
+                set_feedback(cleared > 0 ? "键位已保存，冲突动作已解除绑定"
+                                         : "键位已更新并保存");
                 break;
             }
         }
@@ -756,7 +760,7 @@ void GroundStationUi::draw_control_page(float scale) {
         key_bindings_ = defaults;
         rebinding_action_ = -1;
         backend_.save_key_bindings(std::vector<int>{key_bindings_.begin(), key_bindings_.end()});
-        set_feedback("已恢复旧版默认键位（READY 为 F6）");
+        set_feedback("已恢复默认键位（录制 F9，截屏 F10）");
     }
     end_card();
     next_column_or_row(layout, scale);
@@ -782,6 +786,37 @@ void GroundStationUi::draw_control_page(float scale) {
     ImGui::Dummy({0.0F, 12.0F * scale});
     ImGui::TextWrapped("左肩键映射冲刺，A 映射交互，RT 映射主要动作；所有输入只在 READY 时发送。");
     end_card();
+}
+
+void GroundStationUi::start_recording_action() {
+    if (!core::is_valid_directory(recording_directory_)) {
+        set_feedback("保存目录不能为空");
+        return;
+    }
+    const backend::MediaActionResult result = backend_.start_recording(
+        recording_directory_, recording_format_, recording_quality_, split_minutes_);
+    set_feedback(result.message);
+}
+
+void GroundStationUi::take_screenshot_action() {
+    if (!core::is_valid_directory(recording_directory_)) {
+        set_feedback("保存目录不能为空");
+        return;
+    }
+    const backend::MediaActionResult result =
+        backend_.take_screenshot(recording_directory_);
+    set_feedback(result.message);
+}
+
+void GroundStationUi::toggle_recording_paused_action() {
+    const backend::MediaActionResult result = backend_.set_recording_paused(
+        recording_state_ != backend::RecordingState::paused);
+    set_feedback(result.message);
+}
+
+void GroundStationUi::stop_recording_action() {
+    backend_.stop_recording();
+    set_feedback("录像已结束并保存");
 }
 
 void GroundStationUi::draw_recording_page(float scale) {
@@ -836,14 +871,7 @@ void GroundStationUi::draw_recording_page(float scale) {
     if (recording_state_ == backend::RecordingState::idle ||
         recording_state_ == backend::RecordingState::failed) {
         if (action_button("开始录制", 160.0F * scale)) {
-            if (!core::is_valid_directory(recording_directory_)) {
-                set_feedback("保存目录不能为空");
-            } else {
-                const backend::MediaActionResult result = backend_.start_recording(
-                    recording_directory_, recording_format_, recording_quality_,
-                    split_minutes_);
-                set_feedback(result.message);
-            }
+            start_recording_action();
         }
     } else if (is_recording()) {
         const int elapsed = static_cast<int>(recording_elapsed_seconds_);
@@ -860,25 +888,16 @@ void GroundStationUi::draw_recording_page(float scale) {
                               ? "继续录制"
                               : "暂停录制",
                           130.0F * scale)) {
-            const backend::MediaActionResult result = backend_.set_recording_paused(
-                recording_state_ != backend::RecordingState::paused);
-            set_feedback(result.message);
+            toggle_recording_paused_action();
         }
         ImGui::SameLine();
         if (action_button("停止并保存", 160.0F * scale)) {
-            backend_.stop_recording();
-            set_feedback("录像停止请求已发送，等待后端确认");
+            stop_recording_action();
         }
     }
     ImGui::SameLine();
     if (secondary_button("截图", 110.0F * scale)) {
-        if (!core::is_valid_directory(recording_directory_)) {
-            set_feedback("保存目录不能为空");
-        } else {
-            const backend::MediaActionResult result =
-                backend_.take_screenshot(recording_directory_);
-            set_feedback(result.message);
-        }
+        take_screenshot_action();
     }
     if (secondary_button("打开保存目录", 160.0F * scale)) {
         if (!core::is_valid_directory(recording_directory_)) {

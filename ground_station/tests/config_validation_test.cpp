@@ -1,4 +1,5 @@
 #include "pip_link/backend/ground_station_backend.hpp"
+#include "pip_link/ui/control_input_mapping.hpp"
 
 #include <windows.h>
 
@@ -37,6 +38,26 @@ int main() {
             config.recording_format != 2 || config.last_video_port != 8888 ||
             !config.key_bindings.empty()) {
             std::cerr << "persisted settings were not sanitized\n";
+            return 1;
+        }
+    }
+    const auto defaults = pip_link::ui::default_key_bindings();
+    settings.open(root / "PIP-Link" / "settings.ini", std::ios::trunc);
+    for (std::size_t index = 0; index < 11; ++index) {
+        settings << "key_" << index << '=' << defaults[index] << '\n';
+    }
+    settings.close();
+    {
+        pip_link::backend::GroundStationBackendRuntime backend(nullptr, nullptr, nullptr);
+        const auto bindings = backend.preferences().key_bindings;
+        if (bindings.size() != pip_link::ui::binding_count ||
+            bindings[pip_link::ui::start_recording_binding] !=
+                defaults[pip_link::ui::start_recording_binding] ||
+            bindings[pip_link::ui::take_screenshot_binding] !=
+                defaults[pip_link::ui::take_screenshot_binding] ||
+            bindings[pip_link::ui::pause_recording_binding] != pip_link::ui::unbound_key ||
+            bindings[pip_link::ui::stop_recording_binding] != pip_link::ui::unbound_key) {
+            std::cerr << "legacy shortcut settings were not migrated\n";
             return 1;
         }
     }

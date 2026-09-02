@@ -36,7 +36,7 @@ foreach(required_banner_text
         "暂停"
         "继续"
         "结束"
-        "set_recording_paused"
+        "toggle_recording_paused_action"
         "recording_elapsed_seconds_"
         "AddTriangleFilled")
     string(FIND "${ui_source}" "${required_banner_text}" banner_position)

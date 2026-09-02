@@ -4,6 +4,7 @@
 #include "pip_link/core/debounced_action.hpp"
 #include "pip_link/core/log_tail.hpp"
 #include "pip_link/core/periodic_sampler.hpp"
+#include "pip_link/ui/control_input_mapping.hpp"
 
 #include <array>
 #include <string>
@@ -58,6 +59,10 @@ private:
     void open_settings();
     void leave_ready(const char* reason);
     void toggle_ready();
+    void start_recording_action();
+    void take_screenshot_action();
+    void toggle_recording_paused_action();
+    void stop_recording_action();
     void submit_control_input(float delta_seconds);
     void submit_video_settings();
     void queue_video_settings(bool flush);
@@ -155,7 +160,7 @@ private:
     double recording_last_tick_at_{0.0};
     double scanning_started_at_{0.0};
     double display_confirmation_deadline_{0.0};
-    std::array<int, 11> key_bindings_{};
+    std::array<int, binding_count> key_bindings_{};
     std::array<float, 7> tab_hover_{};
     std::array<float, 7> mouse_input_activity_{};
     std::array<float, 71> key_activity_{};

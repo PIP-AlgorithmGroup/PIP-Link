@@ -1,4 +1,5 @@
 #include "pip_link/backend/ground_station_backend.hpp"
+#include "pip_link/ui/control_input_mapping.hpp"
 #include "pip_link/ui/ground_station_ui.hpp"
 
 #include <imgui.h>
@@ -44,6 +45,55 @@ void press_key(pip_link::ui::GroundStationUi& ui, ImGuiKey key) {
 }  // namespace
 
 int main() {
+    auto bindings = pip_link::ui::default_key_bindings();
+    if (bindings[pip_link::ui::start_recording_binding] != ImGuiKey_F9 ||
+        bindings[pip_link::ui::take_screenshot_binding] != ImGuiKey_F10 ||
+        bindings[pip_link::ui::pause_recording_binding] != pip_link::ui::unbound_key ||
+        bindings[pip_link::ui::stop_recording_binding] != pip_link::ui::unbound_key) {
+        std::cerr << "Media shortcut defaults are incorrect.\n";
+        return 1;
+    }
+    (void)pip_link::ui::assign_key_binding(
+        bindings, pip_link::ui::pause_recording_binding, ImGuiKey_F9);
+    if (bindings[pip_link::ui::start_recording_binding] != ImGuiKey_F9 ||
+        bindings[pip_link::ui::pause_recording_binding] != ImGuiKey_F9) {
+        std::cerr << "Pause must be allowed to share the recording shortcut.\n";
+        return 1;
+    }
+    const int cleared = pip_link::ui::assign_key_binding(
+        bindings, pip_link::ui::stop_recording_binding, ImGuiKey_F9);
+    if (cleared != 1 ||
+        bindings[pip_link::ui::pause_recording_binding] != pip_link::ui::unbound_key ||
+        bindings[pip_link::ui::stop_recording_binding] != ImGuiKey_F9 ||
+        bindings[pip_link::ui::start_recording_binding] != ImGuiKey_F9) {
+        std::cerr << "Pause and stop shortcuts were not kept mutually exclusive.\n";
+        return 1;
+    }
+    (void)pip_link::ui::assign_key_binding(
+        bindings, pip_link::ui::take_screenshot_binding, ImGuiKey_F9);
+    if (bindings[pip_link::ui::start_recording_binding] != pip_link::ui::unbound_key ||
+        bindings[pip_link::ui::stop_recording_binding] != pip_link::ui::unbound_key ||
+        bindings[pip_link::ui::take_screenshot_binding] != ImGuiKey_F9) {
+        std::cerr << "Forbidden shortcut conflicts were not cleared.\n";
+        return 1;
+    }
+    using pip_link::backend::RecordingState;
+    using pip_link::ui::RecordingShortcutAction;
+    if (pip_link::ui::resolve_recording_shortcut(
+            RecordingState::idle, true, true, true) != RecordingShortcutAction::start ||
+        pip_link::ui::resolve_recording_shortcut(
+            RecordingState::recording, true, true, false) !=
+            RecordingShortcutAction::toggle_pause ||
+        pip_link::ui::resolve_recording_shortcut(
+            RecordingState::recording, true, false, true) !=
+            RecordingShortcutAction::stop ||
+        pip_link::ui::resolve_recording_shortcut(
+            RecordingState::paused, false, true, true) !=
+            RecordingShortcutAction::stop) {
+        std::cerr << "One key press can dispatch multiple recording actions.\n";
+        return 1;
+    }
+
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.DisplaySize = {1440.0F, 900.0F};
