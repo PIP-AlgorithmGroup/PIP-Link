@@ -161,8 +161,8 @@ git push origin v3.0.0
 
 ```powershell
 gh release create v3.0.0 `
-  "out/package/PIP-Link-v3.0.0-x64.msi#Windows x64 安装版" `
-  "out/package/PIP-Link-v3.0.0-win64.zip#Windows x64 便携版" `
+  "out/package/PIP-Link-v3.0.0-x64.msi" `
+  "out/package/PIP-Link-v3.0.0-win64.zip" `
   --verify-tag `
   --title "PIP-Link v3.0.0" `
   --generate-notes `
