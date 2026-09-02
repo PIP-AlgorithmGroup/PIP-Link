@@ -152,14 +152,14 @@ private:
     bool hud_animation_initialized_{false};
     std::array<char, 128> service_name_{"_pip-link._udp.local"};
     std::array<char, 128> manual_address_{"192.168.1.10:6000"};
-    std::array<char, 260> recording_directory_{"recordings"};
+    std::string recording_directory_{"recordings"};
     std::array<char, 128> audit_filter_{};
     std::array<char, 256> console_command_{};
     std::vector<std::string> console_lines_{"PIP-Link developer console", "输入 help 查看后端命令"};
     GamepadSnapshot gamepad_{};
     std::string feedback_{"地面端已就绪"};
     core::DebouncedAction video_settings_debounce_{0.12F};
-    core::PeriodicSampler diagnostics_sampler_{0.1F};
+    core::PeriodicSampler diagnostics_sampler_{0.5F};
     core::LogTail console_log_tail_{};
     core::LogTail audit_log_tail_{};
 };

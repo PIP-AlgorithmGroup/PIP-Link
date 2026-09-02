@@ -155,8 +155,7 @@ GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backe
                   settings.service_name.c_str());
     std::snprintf(manual_address_.data(), manual_address_.size(), "%s",
                   settings.last_endpoint.c_str());
-    std::snprintf(recording_directory_.data(), recording_directory_.size(), "%s",
-                  settings.recording_directory.c_str());
+    recording_directory_ = settings.recording_directory;
     if (settings.key_bindings.size() == key_bindings_.size()) {
         std::copy(settings.key_bindings.begin(), settings.key_bindings.end(),
                   key_bindings_.begin());

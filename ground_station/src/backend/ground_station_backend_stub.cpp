@@ -67,6 +67,11 @@ MediaActionResult GroundStationBackendStub::open_recordings_folder(const std::st
     return {true, "保存目录已打开"};
 }
 
+DirectorySelectionResult GroundStationBackendStub::choose_recording_directory(
+    const std::string&) {
+    return {};
+}
+
 void GroundStationBackendStub::save_key_bindings(const std::vector<int>&) {}
 
 void GroundStationBackendStub::apply_gamepad_settings(float, bool) {}

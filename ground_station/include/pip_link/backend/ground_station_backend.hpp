@@ -126,6 +126,12 @@ struct MediaActionResult final {
     std::string message;
 };
 
+struct DirectorySelectionResult final {
+    bool selected{};
+    std::string directory;
+    std::string message;
+};
+
 class GroundStationBackend {
 public:
     virtual ~GroundStationBackend() = default;
@@ -172,6 +178,8 @@ public:
         const std::string& directory) = 0;
     [[nodiscard]] virtual MediaActionResult open_recordings_folder(
         const std::string& directory) = 0;
+    [[nodiscard]] virtual DirectorySelectionResult choose_recording_directory(
+        const std::string& current_directory) = 0;
     virtual void save_key_bindings(const std::vector<int>& bindings) = 0;
     virtual void apply_gamepad_settings(float deadzone, bool vibration) = 0;
     virtual void export_diagnostics() = 0;
@@ -225,6 +233,8 @@ public:
         const std::string& directory) override;
     [[nodiscard]] MediaActionResult open_recordings_folder(
         const std::string& directory) override;
+    [[nodiscard]] DirectorySelectionResult choose_recording_directory(
+        const std::string& current_directory) override;
     void save_key_bindings(const std::vector<int>& bindings) override;
     void apply_gamepad_settings(float deadzone, bool vibration) override;
     void export_diagnostics() override;
@@ -284,6 +294,8 @@ public:
         const std::string& directory) override;
     [[nodiscard]] MediaActionResult open_recordings_folder(
         const std::string& directory) override;
+    [[nodiscard]] DirectorySelectionResult choose_recording_directory(
+        const std::string& current_directory) override;
     void save_key_bindings(const std::vector<int>& bindings) override;
     void apply_gamepad_settings(float deadzone, bool vibration) override;
     void export_diagnostics() override;

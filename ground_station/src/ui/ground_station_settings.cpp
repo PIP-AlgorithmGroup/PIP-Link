@@ -792,9 +792,16 @@ void GroundStationUi::draw_recording_page(float scale) {
     ImGui::BeginDisabled(recording_state_ != backend::RecordingState::idle &&
                          recording_state_ != backend::RecordingState::failed);
     ImGui::TextColored(text_secondary, "保存目录");
-    ImGui::SetNextItemWidth(-1.0F);
-    ImGui::InputTextWithHint("##RecordingDirectory", "相对路径位于 Windows 视频目录",
-                             recording_directory_.data(), recording_directory_.size());
+    ImGui::TextWrapped("%s", recording_directory_.c_str());
+    if (secondary_button("选择保存目录...", 160.0F * scale)) {
+        const backend::DirectorySelectionResult result =
+            backend_.choose_recording_directory(recording_directory_);
+        if (result.selected) {
+            recording_directory_ = result.directory;
+        }
+        if (!result.message.empty()) set_feedback(result.message);
+    }
+    ImGui::Dummy({0.0F, 6.0F * scale});
     ImGui::SetNextItemWidth(300.0F * scale);
     animated_combo("封装格式", &recording_format_, formats,
                    static_cast<int>(std::size(formats)));
@@ -826,11 +833,11 @@ void GroundStationUi::draw_recording_page(float scale) {
     if (recording_state_ == backend::RecordingState::idle ||
         recording_state_ == backend::RecordingState::failed) {
         if (action_button("开始录制", 160.0F * scale)) {
-            if (!core::is_valid_directory(recording_directory_.data())) {
+            if (!core::is_valid_directory(recording_directory_)) {
                 set_feedback("保存目录不能为空");
             } else {
                 const backend::MediaActionResult result = backend_.start_recording(
-                    recording_directory_.data(), recording_format_, recording_quality_,
+                    recording_directory_, recording_format_, recording_quality_,
                     split_minutes_);
                 set_feedback(result.message);
             }
@@ -846,20 +853,20 @@ void GroundStationUi::draw_recording_page(float scale) {
     }
     ImGui::SameLine();
     if (secondary_button("截图", 110.0F * scale)) {
-        if (!core::is_valid_directory(recording_directory_.data())) {
+        if (!core::is_valid_directory(recording_directory_)) {
             set_feedback("保存目录不能为空");
         } else {
             const backend::MediaActionResult result =
-                backend_.take_screenshot(recording_directory_.data());
+                backend_.take_screenshot(recording_directory_);
             set_feedback(result.message);
         }
     }
     if (secondary_button("打开保存目录", 160.0F * scale)) {
-        if (!core::is_valid_directory(recording_directory_.data())) {
+        if (!core::is_valid_directory(recording_directory_)) {
             set_feedback("保存目录不能为空");
         } else {
             const backend::MediaActionResult result =
-                backend_.open_recordings_folder(recording_directory_.data());
+                backend_.open_recordings_folder(recording_directory_);
             set_feedback(result.message);
         }
     }
@@ -897,14 +904,14 @@ void GroundStationUi::draw_diagnostics_page(float scale) {
         ImGui::Dummy({0.0F, 14.0F * scale});
         const ColumnLayout graph_layout = columns(scale);
         begin_card("FpsGraph", {graph_layout.width, 250.0F * scale});
-        section_title("帧率时间线");
+        section_title("帧率时间线", "最近 60 秒 · 每 0.5 秒采样");
         ImGui::PlotLines("##FpsHistory", fps_history_.data(),
                          static_cast<int>(fps_history_.size()), 0, nullptr,
                          0.0F, 240.0F, {-1.0F, 165.0F * scale});
         end_card();
         next_column_or_row(graph_layout, scale);
         begin_card("LatencyGraph", {graph_layout.width, 250.0F * scale});
-        section_title("延迟时间线");
+        section_title("延迟时间线", "最近 60 秒 · 每 0.5 秒采样");
         ImGui::PlotLines("##LatencyHistory", latency_history_.data(),
                          static_cast<int>(latency_history_.size()), 0, nullptr,
                          0.0F, 300.0F, {-1.0F, 165.0F * scale});

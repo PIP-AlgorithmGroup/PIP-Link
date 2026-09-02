@@ -99,6 +99,7 @@ if(TARGET pip_link_desktop)
         COMMAND ${CMAKE_COMMAND}
                 -DSETTINGS_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/ui/ground_station_settings.cpp
                 -DUI_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/ui/ground_station_ui.cpp
+                -DUI_HEADER=${CMAKE_SOURCE_DIR}/ground_station/include/pip_link/ui/ground_station_ui.hpp
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_ui_design_contract.cmake
     )
     add_test(

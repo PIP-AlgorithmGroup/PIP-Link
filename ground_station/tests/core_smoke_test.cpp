@@ -83,13 +83,14 @@ int main() {
     }
 
     for (const int frame_rate : std::array{30, 60, 144, 240}) {
-        pip_link::core::PeriodicSampler sampler{0.1F};
+        pip_link::core::PeriodicSampler sampler{0.5F};
         int samples = 0;
-        for (int frame = 0; frame < frame_rate; ++frame) {
+        for (int frame = 0; frame < frame_rate * 60; ++frame) {
             if (sampler.tick(1.0F / static_cast<float>(frame_rate))) ++samples;
         }
-        if (samples < 9 || samples > 10) {
-            std::cerr << "Diagnostic sampling rate depends on render frame rate.\n";
+        if (samples < 119 || samples > 120) {
+            std::cerr << "Diagnostic history does not cover a frame-rate-independent minute: "
+                      << frame_rate << " Hz produced " << samples << " samples.\n";
             return 1;
         }
     }

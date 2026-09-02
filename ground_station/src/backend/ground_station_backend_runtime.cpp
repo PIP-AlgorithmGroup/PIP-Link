@@ -85,6 +85,26 @@ std::wstring utf16(std::string_view value) {
     return result;
 }
 
+std::string utf8(std::wstring_view value) {
+    if (value.empty()) return {};
+    const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+                                         static_cast<int>(value.size()), nullptr, 0,
+                                         nullptr, nullptr);
+    if (size <= 0) return {};
+    std::string result(static_cast<std::size_t>(size), '\0');
+    WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
+                        static_cast<int>(value.size()), result.data(), size,
+                        nullptr, nullptr);
+    return result;
+}
+
+std::string com_error(const char* action, HRESULT result) {
+    std::ostringstream stream;
+    stream << action << " (HRESULT=0x" << std::hex << std::uppercase
+           << static_cast<unsigned long>(result) << ')';
+    return stream.str();
+}
+
 std::filesystem::path application_data_directory() {
     wchar_t buffer[MAX_PATH]{};
     const DWORD size = GetEnvironmentVariableW(L"LOCALAPPDATA", buffer, MAX_PATH);
@@ -2162,6 +2182,82 @@ MediaActionResult GroundStationBackendRuntime::open_recordings_folder(
         return {false, "无法打开录像目录"};
     }
     return {true, "保存目录已打开: " + path.string()};
+}
+
+DirectorySelectionResult GroundStationBackendRuntime::choose_recording_directory(
+    const std::string& current_directory) {
+    const HRESULT com_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    IFileOpenDialog* dialog = nullptr;
+    IShellItem* initial_item = nullptr;
+    IShellItem* selected_item = nullptr;
+    PWSTR selected_path = nullptr;
+    DirectorySelectionResult response;
+
+    HRESULT result = CoCreateInstance(CLSID_FileOpenDialog, nullptr,
+                                      CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog));
+    if (SUCCEEDED(result)) {
+        FILEOPENDIALOGOPTIONS options{};
+        result = dialog->GetOptions(&options);
+        if (SUCCEEDED(result)) {
+            result = dialog->SetOptions(options | FOS_PICKFOLDERS |
+                                        FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+        }
+    }
+    if (SUCCEEDED(result)) {
+        dialog->SetTitle(L"选择录像与截图保存目录");
+        const std::filesystem::path initial_path =
+            media_output_directory(current_directory);
+        std::error_code filesystem_error;
+        std::filesystem::create_directories(initial_path, filesystem_error);
+        if (!filesystem_error &&
+            SUCCEEDED(SHCreateItemFromParsingName(initial_path.c_str(), nullptr,
+                                                  IID_PPV_ARGS(&initial_item)))) {
+            dialog->SetFolder(initial_item);
+        }
+        HWND owner = nullptr;
+        if (impl_->window_ != nullptr) {
+            const SDL_PropertiesID properties = SDL_GetWindowProperties(impl_->window_);
+            owner = static_cast<HWND>(SDL_GetPointerProperty(
+                properties, SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr));
+        }
+        result = dialog->Show(owner);
+    }
+    if (result == HRESULT_FROM_WIN32(ERROR_CANCELLED)) {
+        result = S_OK;
+    } else if (SUCCEEDED(result)) {
+        result = dialog->GetResult(&selected_item);
+        if (SUCCEEDED(result)) {
+            result = selected_item->GetDisplayName(SIGDN_FILESYSPATH, &selected_path);
+        }
+        if (SUCCEEDED(result) && selected_path != nullptr) {
+            response.directory = utf8(selected_path);
+            response.selected = !response.directory.empty();
+            if (response.selected) {
+                response.message = "保存目录已更新: " + response.directory;
+            } else {
+                result = E_UNEXPECTED;
+            }
+        }
+    }
+    if (FAILED(result)) response.message = com_error("无法选择保存目录", result);
+
+    if (selected_path != nullptr) CoTaskMemFree(selected_path);
+    release(selected_item);
+    release(initial_item);
+    release(dialog);
+    if (SUCCEEDED(com_result)) CoUninitialize();
+
+    if (response.selected) {
+        {
+            std::lock_guard lock(impl_->config_mutex_);
+            impl_->config_.recording_directory = response.directory;
+        }
+        impl_->save_config();
+        impl_->append_audit("INFO", response.message);
+    } else if (!response.message.empty()) {
+        impl_->append_audit("ERROR", response.message);
+    }
+    return response;
 }
 
 void GroundStationBackendRuntime::save_key_bindings(const std::vector<int>& bindings) {
