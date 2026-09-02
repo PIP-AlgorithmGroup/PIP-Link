@@ -47,6 +47,7 @@ inline constexpr int unbound_key = 0;
                                           std::size_t second) noexcept;
 [[nodiscard]] int assign_key_binding(std::span<int> bindings,
                                      std::size_t action, int key) noexcept;
+[[nodiscard]] bool is_bindable_keyboard_key(int key) noexcept;
 [[nodiscard]] RecordingShortcutAction resolve_recording_shortcut(
     backend::RecordingState state, bool start_pressed,
     bool pause_pressed, bool stop_pressed) noexcept;

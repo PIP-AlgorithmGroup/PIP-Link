@@ -28,7 +28,10 @@ endif()
 foreach(required IN ITEMS
         "animated_combo("
         "advance_smooth_scroll("
-        "##AuditRows")
+        "##AuditRows"
+        "rebinding_started_frame_"
+        "ImGuiKey_GamepadStart"
+        "\"清空\"")
     string(FIND "${settings_source}" "${required}" found)
     if(found EQUAL -1)
         message(FATAL_ERROR "Settings UI design contract is missing: ${required}")

@@ -132,6 +132,7 @@ private:
     std::uint64_t screenshot_revision_{};
     int language_index_{0};
     int rebinding_action_{-1};
+    int rebinding_started_frame_{-1};
     float mouse_sensitivity_{1.0F};
     float field_of_view_{90.0F};
     float fec_redundancy_{0.20F};

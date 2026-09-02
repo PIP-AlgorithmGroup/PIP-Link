@@ -708,10 +708,11 @@ void GroundStationUi::draw_control_page(float scale) {
 
     ImGui::Dummy({0.0F, layout.gap});
     begin_card("KeyBindings", {layout.width, 700.0F * scale});
-    section_title("键盘绑定", "左键重新绑定，右键清除；录制可与暂停或结束共用，暂停与结束不能共用");
-    if (ImGui::BeginTable("KeyBindingRows", 2, ImGuiTableFlags_SizingStretchProp)) {
+    section_title("键盘绑定", "录制可与暂停或结束共用，暂停与结束不能共用");
+    if (ImGui::BeginTable("KeyBindingRows", 3, ImGuiTableFlags_SizingStretchProp)) {
         ImGui::TableSetupColumn("动作", ImGuiTableColumnFlags_WidthStretch);
-        ImGui::TableSetupColumn("按键", ImGuiTableColumnFlags_WidthFixed, 145.0F * scale);
+        ImGui::TableSetupColumn("按键", ImGuiTableColumnFlags_WidthFixed, 125.0F * scale);
+        ImGui::TableSetupColumn("清空", ImGuiTableColumnFlags_WidthFixed, 68.0F * scale);
         for (int index = 0; index < static_cast<int>(actions.size()); ++index) {
             ImGui::TableNextRow(0, ImGui::GetFrameHeight());
             ImGui::TableNextColumn();
@@ -725,29 +726,41 @@ void GroundStationUi::draw_control_page(float scale) {
                                        ? "未绑定"
                                        : ImGui::GetKeyName(
                                              static_cast<ImGuiKey>(key_bindings_[index]));
-            if (ImGui::Button(key_name, {-1.0F, 0.0F})) rebinding_action_ = index;
-            if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+            if (ImGui::Button(key_name, {-1.0F, 0.0F})) {
+                rebinding_action_ = index;
+                rebinding_started_frame_ = ImGui::GetFrameCount();
+            }
+            ImGui::PopID();
+            ImGui::TableNextColumn();
+            ImGui::PushID(index);
+            ImGui::BeginDisabled(key_bindings_[index] == unbound_key);
+            if (ImGui::Button("清空", {-1.0F, 0.0F})) {
                 (void)assign_key_binding(key_bindings_, index, unbound_key);
                 rebinding_action_ = -1;
+                rebinding_started_frame_ = -1;
                 backend_.save_key_bindings(
                     std::vector<int>{key_bindings_.begin(), key_bindings_.end()});
                 set_feedback("快捷键已清除");
             }
+            ImGui::EndDisabled();
             ImGui::PopID();
         }
         ImGui::EndTable();
     }
     if (rebinding_action_ >= 0 && secondary_button("取消本次绑定", 150.0F * scale)) {
         rebinding_action_ = -1;
+        rebinding_started_frame_ = -1;
         set_feedback("已取消键位绑定");
     }
-    if (rebinding_action_ >= 0) {
-        for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_NamedKey_END; ++key) {
+    if (rebinding_action_ >= 0 && ImGui::GetFrameCount() > rebinding_started_frame_) {
+        for (int key = ImGuiKey_NamedKey_BEGIN; key < ImGuiKey_GamepadStart; ++key) {
+            if (!is_bindable_keyboard_key(key)) continue;
             if (ImGui::IsKeyPressed(static_cast<ImGuiKey>(key), false)) {
                 const int action = rebinding_action_;
                 const int cleared = assign_key_binding(
                     key_bindings_, static_cast<std::size_t>(action), key);
                 rebinding_action_ = -1;
+                rebinding_started_frame_ = -1;
                 backend_.save_key_bindings(
                     std::vector<int>{key_bindings_.begin(), key_bindings_.end()});
                 set_feedback(cleared > 0 ? "键位已保存，冲突动作已解除绑定"
@@ -759,6 +772,7 @@ void GroundStationUi::draw_control_page(float scale) {
     if (secondary_button("恢复旧版默认键位", 185.0F * scale)) {
         key_bindings_ = defaults;
         rebinding_action_ = -1;
+        rebinding_started_frame_ = -1;
         backend_.save_key_bindings(std::vector<int>{key_bindings_.begin(), key_bindings_.end()});
         set_feedback("已恢复默认键位（录制 F9，截屏 F10）");
     }

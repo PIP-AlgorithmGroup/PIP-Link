@@ -102,6 +102,10 @@ int assign_key_binding(std::span<int> bindings, std::size_t action, int key) noe
     return cleared;
 }
 
+bool is_bindable_keyboard_key(int key) noexcept {
+    return key >= ImGuiKey_NamedKey_BEGIN && key < ImGuiKey_GamepadStart;
+}
+
 RecordingShortcutAction resolve_recording_shortcut(
     backend::RecordingState state, bool start_pressed,
     bool pause_pressed, bool stop_pressed) noexcept {

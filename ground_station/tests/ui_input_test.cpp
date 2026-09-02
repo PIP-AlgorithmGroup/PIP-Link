@@ -53,6 +53,12 @@ int main() {
         std::cerr << "Media shortcut defaults are incorrect.\n";
         return 1;
     }
+    if (!pip_link::ui::is_bindable_keyboard_key(ImGuiKey_F9) ||
+        pip_link::ui::is_bindable_keyboard_key(ImGuiKey_MouseLeft) ||
+        pip_link::ui::is_bindable_keyboard_key(ImGuiKey_GamepadStart)) {
+        std::cerr << "Shortcut binding accepts mouse or gamepad clicks.\n";
+        return 1;
+    }
     (void)pip_link::ui::assign_key_binding(
         bindings, pip_link::ui::pause_recording_binding, ImGuiKey_F9);
     if (bindings[pip_link::ui::start_recording_binding] != ImGuiKey_F9 ||
