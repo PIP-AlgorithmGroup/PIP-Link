@@ -106,6 +106,15 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
     const ImVec2 mouse_body_min{center.x - 36.0F * unit, center.y - 60.0F * unit};
     const ImVec2 mouse_body_max{center.x + 36.0F * unit, center.y + 60.0F * unit};
     const float button_bottom = mouse_body_min.y + 39.0F * unit;
+    const ImVec2 side_button_min{mouse_body_min.x - 10.0F * unit,
+                                 mouse_body_min.y + 48.0F * unit};
+
+    for (std::size_t index = 0; index < 2; ++index) {
+        const float top = side_button_min.y + static_cast<float>(index) * 21.0F * unit;
+        draw->AddRectFilled({side_button_min.x, top},
+                            {mouse_body_min.x + 5.0F * unit, top + 16.0F * unit},
+                            part_color(activity[3 + index]), 5.0F * unit);
+    }
 
     draw->AddRectFilled({mouse_body_min.x, mouse_body_min.y + 3.0F * unit},
                         {mouse_body_max.x, mouse_body_max.y + 3.0F * unit},
@@ -162,16 +171,11 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
                   {center.x + 2.8F * unit, wheel_max.y - 7.0F * unit},
                   wheel_mark, 1.2F * unit);
 
-    const ImVec2 side_button_min{mouse_body_min.x - 10.0F * unit,
-                                 mouse_body_min.y + 48.0F * unit};
     for (std::size_t index = 0; index < 2; ++index) {
         const float top = side_button_min.y + static_cast<float>(index) * 21.0F * unit;
-        draw->AddRectFilled({side_button_min.x, top},
-                            {mouse_body_min.x + 5.0F * unit, top + 16.0F * unit},
-                            part_color(activity[3 + index]), 5.0F * unit);
         const char* label = index == 0 ? "4" : "5";
         draw->AddText(ImGui::GetFont(), button_font_size,
-                      {side_button_min.x + 4.0F * unit, top + 1.0F * unit},
+                      {side_button_min.x + 2.0F * unit, top + 1.0F * unit},
                       IM_COL32(224, 237, 244, static_cast<int>(215.0F * opacity)),
                       label);
     }
@@ -184,15 +188,21 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
         const ImVec2 direction{movement_delta.x / movement_length,
                                movement_delta.y / movement_length};
         const ImVec2 perpendicular{-direction.y, direction.x};
-        const ImVec2 movement_tip{movement_origin.x + movement_delta.x,
-                                  movement_origin.y + movement_delta.y};
+        const float arrow_length = std::clamp(
+            movement_length, 7.0F * unit, 18.0F * unit);
+        const ImVec2 movement_tail{
+            movement_origin.x - direction.x * arrow_length * 0.5F,
+            movement_origin.y - direction.y * arrow_length * 0.5F};
+        const ImVec2 movement_tip{
+            movement_origin.x + direction.x * arrow_length * 0.5F,
+            movement_origin.y + direction.y * arrow_length * 0.5F};
         const float head_length = 6.0F * unit;
         const float head_width = 3.5F * unit;
         const ImVec2 head_base{movement_tip.x - direction.x * head_length,
                                movement_tip.y - direction.y * head_length};
         const ImU32 movement_color = color_with_alpha(
             accent, opacity * std::clamp(movement_length / (16.0F * unit), 0.35F, 1.0F));
-        draw->AddLine(movement_origin, movement_tip, movement_color, 2.0F * unit);
+        draw->AddLine(movement_tail, movement_tip, movement_color, 2.0F * unit);
         draw->AddTriangleFilled(
             movement_tip,
             {head_base.x + perpendicular.x * head_width,

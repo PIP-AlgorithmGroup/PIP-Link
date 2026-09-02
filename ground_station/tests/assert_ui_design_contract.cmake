@@ -47,8 +47,14 @@ string(FIND "${ui_source}" "\"↓\"" font_wheel_down)
 string(FIND "${ui_source}" "void draw_mouse_diagram(" mouse_diagram)
 string(FIND "${ui_source}" "float movement_x, float movement_y" embedded_movement)
 string(FIND "${ui_source}" "\"MOTION\"" external_motion_widget)
+string(FIND "${ui_source}" "const ImVec2 movement_tail" centered_arrow)
+string(FIND "${ui_source}" "draw->AddRectFilled({side_button_min.x, top}" side_background)
+string(FIND "${ui_source}" "draw->AddRectFilled(mouse_body_min, mouse_body_max" mouse_body)
+string(FIND "${ui_source}" "side_button_min.x + 2.0F * unit" shifted_side_label)
 if(wheel_activity EQUAL -1 OR NOT font_wheel_up EQUAL -1 OR
    NOT font_wheel_down EQUAL -1 OR mouse_diagram EQUAL -1 OR
-   embedded_movement EQUAL -1 OR NOT external_motion_widget EQUAL -1)
-    message(FATAL_ERROR "Mouse movement must be drawn inside the mouse diagram")
+   embedded_movement EQUAL -1 OR NOT external_motion_widget EQUAL -1 OR
+   centered_arrow EQUAL -1 OR side_background EQUAL -1 OR mouse_body EQUAL -1 OR
+   side_background GREATER mouse_body OR shifted_side_label EQUAL -1)
+    message(FATAL_ERROR "Mouse diagram layering or centered motion arrow is incomplete")
 endif()
