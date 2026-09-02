@@ -25,6 +25,32 @@ constexpr int preferred_height = 900;
 constexpr int minimum_width = 960;
 constexpr int minimum_height = 640;
 
+void apply_window_icon(SDL_Window* window) {
+    const char* base_path = SDL_GetBasePath();
+    if (base_path == nullptr) {
+        std::cerr << "Application icon path is unavailable: " << SDL_GetError() << '\n';
+        return;
+    }
+
+    const std::filesystem::path icon_path = std::filesystem::path(base_path) / "icon.bmp";
+    SDL_Surface* icon = SDL_LoadBMP(icon_path.string().c_str());
+    if (icon == nullptr) {
+        std::cerr << "Application icon could not be loaded from " << icon_path.string()
+                  << ": " << SDL_GetError() << '\n';
+        return;
+    }
+
+    const SDL_PixelFormatDetails* format = SDL_GetPixelFormatDetails(icon->format);
+    if (format != nullptr) {
+        const Uint32 transparent_magenta = SDL_MapRGB(format, nullptr, 255, 0, 255);
+        SDL_SetSurfaceColorKey(icon, true, transparent_magenta);
+    }
+    if (!SDL_SetWindowIcon(window, icon)) {
+        std::cerr << "Application icon could not be applied: " << SDL_GetError() << '\n';
+    }
+    SDL_DestroySurface(icon);
+}
+
 void release_render_target(ID3D11RenderTargetView*& target) {
     if (target != nullptr) {
         target->Release();
@@ -304,6 +330,7 @@ int DesktopWindow::run() {
         impl_->shutdown();
         return 1;
     }
+    apply_window_icon(impl_->window);
     SDL_SetWindowMinimumSize(impl_->window, minimum_width, minimum_height);
     SDL_SetWindowPosition(impl_->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 

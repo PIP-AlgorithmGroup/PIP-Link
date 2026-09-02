@@ -7,6 +7,10 @@ project(
     LANGUAGES CXX
 )
 
+if(WIN32)
+    enable_language(RC)
+endif()
+
 option(PIP_LINK_BUILD_TESTS "Build PIP-Link client tests" ON)
 option(PIP_LINK_BUILD_GUI "Build the SDL3 + Dear ImGui desktop shell" ON)
 
@@ -126,7 +130,21 @@ if(PIP_LINK_BUILD_GUI)
     endif()
 
     add_executable(pip_link_ground_station ground_station/src/main.cpp)
+    if(WIN32)
+        target_sources(pip_link_ground_station PRIVATE
+            ground_station/resources/app_icon.rc
+        )
+        target_include_directories(pip_link_ground_station PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/assets
+        )
+    endif()
     target_link_libraries(pip_link_ground_station PRIVATE pip_link_desktop)
+    add_custom_command(TARGET pip_link_ground_station POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${CMAKE_CURRENT_SOURCE_DIR}/assets/icon.bmp"
+                "$<TARGET_FILE_DIR:pip_link_ground_station>/icon.bmp"
+        VERBATIM
+    )
     if(MINGW)
         target_link_options(pip_link_ground_station PRIVATE
             -static
@@ -135,6 +153,7 @@ if(PIP_LINK_BUILD_GUI)
         )
     endif()
     install(TARGETS pip_link_ground_station RUNTIME DESTINATION bin)
+    install(FILES assets/icon.bmp DESTINATION bin)
 endif()
 
 if(PIP_LINK_BUILD_TESTS)

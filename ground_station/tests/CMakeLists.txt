@@ -41,6 +41,7 @@ add_test(
     NAME pip_link_mingw_runtime_contract_test
     COMMAND ${CMAKE_COMMAND}
             -DROOT_CMAKE=${CMAKE_SOURCE_DIR}/CMakeLists.txt
+            -DDESKTOP_WINDOW_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/platform/desktop_window.cpp
             -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_mingw_runtime_contract.cmake
 )
 
