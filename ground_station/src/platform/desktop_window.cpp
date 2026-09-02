@@ -12,6 +12,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdint>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <optional>
@@ -55,6 +57,13 @@ void release_render_target(ID3D11RenderTargetView*& target) {
     if (target != nullptr) {
         target->Release();
         target = nullptr;
+    }
+}
+
+void release_texture(ID3D11Texture2D*& texture) {
+    if (texture != nullptr) {
+        texture->Release();
+        texture = nullptr;
     }
 }
 
@@ -130,6 +139,9 @@ struct DesktopWindow::Impl final {
     ID3D11DeviceContext* context{nullptr};
     IDXGISwapChain* swap_chain{nullptr};
     ID3D11RenderTargetView* render_target{nullptr};
+    ID3D11Texture2D* capture_texture{nullptr};
+    UINT capture_width{};
+    UINT capture_height{};
     float display_scale{1.0F};
     std::unique_ptr<backend::GroundStationBackendRuntime> backend;
     std::unique_ptr<ui::GroundStationUi> ui;
@@ -237,6 +249,9 @@ struct DesktopWindow::Impl final {
             return true;
         }
         release_render_target(render_target);
+        release_texture(capture_texture);
+        capture_width = 0;
+        capture_height = 0;
         const HRESULT resize_result = swap_chain->ResizeBuffers(
             0, static_cast<UINT>(width), static_cast<UINT>(height),
             DXGI_FORMAT_UNKNOWN, 0);
@@ -249,6 +264,45 @@ struct DesktopWindow::Impl final {
             return false;
         }
         return true;
+    }
+
+    void capture_composited_frame() {
+        if (!backend || !backend->needs_composited_frame()) return;
+        ID3D11Texture2D* back_buffer = nullptr;
+        if (FAILED(swap_chain->GetBuffer(0, IID_PPV_ARGS(&back_buffer)))) return;
+        D3D11_TEXTURE2D_DESC description{};
+        back_buffer->GetDesc(&description);
+        if (capture_texture == nullptr || capture_width != description.Width ||
+            capture_height != description.Height) {
+            release_texture(capture_texture);
+            D3D11_TEXTURE2D_DESC staging = description;
+            staging.BindFlags = 0;
+            staging.MiscFlags = 0;
+            staging.Usage = D3D11_USAGE_STAGING;
+            staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+            if (FAILED(device->CreateTexture2D(&staging, nullptr, &capture_texture))) {
+                back_buffer->Release();
+                return;
+            }
+            capture_width = description.Width;
+            capture_height = description.Height;
+        }
+        context->CopyResource(capture_texture, back_buffer);
+        back_buffer->Release();
+        D3D11_MAPPED_SUBRESOURCE mapped{};
+        if (FAILED(context->Map(capture_texture, 0, D3D11_MAP_READ, 0, &mapped))) return;
+        backend::CompositedFrame frame;
+        frame.width = static_cast<int>(capture_width);
+        frame.height = static_cast<int>(capture_height);
+        const std::size_t row_bytes = static_cast<std::size_t>(capture_width) * 4;
+        frame.bgra.resize(row_bytes * capture_height);
+        for (UINT row = 0; row < capture_height; ++row) {
+            std::memcpy(frame.bgra.data() + row_bytes * row,
+                        static_cast<const std::uint8_t*>(mapped.pData) + mapped.RowPitch * row,
+                        row_bytes);
+        }
+        context->Unmap(capture_texture, 0);
+        backend->submit_composited_frame(std::move(frame));
     }
 
     void update_mouse_capture() {
@@ -278,6 +332,7 @@ struct DesktopWindow::Impl final {
             ImGui::DestroyContext();
         }
         release_render_target(render_target);
+        release_texture(capture_texture);
         if (swap_chain != nullptr) {
             swap_chain->Release();
             swap_chain = nullptr;
@@ -417,6 +472,8 @@ int DesktopWindow::run() {
         impl_->update_gamepad();
         impl_->ui->draw(delta_seconds, impl_->display_scale);
         impl_->update_mouse_capture();
+        io.MouseDrawCursor = impl_->backend->needs_composited_frame() &&
+                             !impl_->ui->wants_relative_mouse_mode();
         if (impl_->ui->quit_requested()) {
             running = false;
         }
@@ -432,6 +489,7 @@ int DesktopWindow::run() {
         impl_->context->OMSetRenderTargets(1, &impl_->render_target, nullptr);
         impl_->context->ClearRenderTargetView(impl_->render_target, clear_color);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        impl_->capture_composited_frame();
         impl_->swap_chain->Present(impl_->backend->vertical_sync_enabled() ? 1U : 0U, 0);
     }
 

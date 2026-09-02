@@ -302,11 +302,16 @@ int main() {
         }
         const auto premature_recording =
             backend.start_recording(output_directory.string(), 2, 85, 0);
-        if (premature_recording.succeeded || backend.runtime_state().recording ==
-            pip_link::backend::RecordingState::recording) {
-            std::cerr << "recording started before a live video stream\n";
+        if (!premature_recording.succeeded || !backend.needs_composited_frame()) {
+            std::cerr << "full-window recording was incorrectly tied to the video stream\n";
             failed = true;
         }
+        pip_link::backend::CompositedFrame composite_frame;
+        composite_frame.width = 16;
+        composite_frame.height = 16;
+        composite_frame.bgra.assign(16 * 16 * 4, 0x7f);
+        backend.submit_composited_frame(composite_frame);
+        backend.stop_recording();
         allow_video = true;
         pip_link::backend::ControlInput input{};
         input.keyboard[0] = 1;
@@ -330,9 +335,10 @@ int main() {
         }
         const auto recording_started =
             backend.start_recording(output_directory.string(), 2, 85, 0);
+        backend.submit_composited_frame(composite_frame);
         if (!recording_started.succeeded || backend.runtime_state().recording !=
             pip_link::backend::RecordingState::recording) {
-            std::cerr << "raw stream recording did not start after video became live\n";
+            std::cerr << "composited recording did not start\n";
             failed = true;
         }
         backend.set_ready(true);
@@ -370,6 +376,7 @@ int main() {
         }
         const auto screenshot_result =
             backend.take_screenshot(output_directory.string());
+        backend.submit_composited_frame(composite_frame);
         if (!screenshot_result.succeeded) {
             std::cerr << "screenshot request failed: " << screenshot_result.message << '\n';
             failed = true;
@@ -383,7 +390,7 @@ int main() {
             if (item.path().extension() == ".png" && item.file_size() > 0) {
                 has_screenshot = true;
             }
-            if (item.path().extension() == ".mjpeg" && item.file_size() > 0) {
+            if (item.path().extension() == ".mkv" && item.file_size() > 0) {
                 has_recording = true;
             }
         }

@@ -921,7 +921,6 @@ public:
             ++dropped_frames_;
         }
         last_codec_ = codec;
-        recorder_.write(codec, encoded);
         const bool low_latency = low_latency_.load();
         {
             std::lock_guard lock(decode_mutex_);
@@ -1798,7 +1797,13 @@ public:
     mutable ID3D11ShaderResourceView* video_view_{};
     mutable int texture_width_{};
     mutable int texture_height_{};
-    media::StreamRecorder recorder_;
+    media::CompositedRecorder recorder_;
+    mutable std::mutex composite_mutex_;
+    std::optional<std::filesystem::path> pending_screenshot_;
+    std::filesystem::path pending_recording_directory_;
+    int pending_recording_format_{};
+    int pending_recording_quality_{85};
+    int pending_recording_split_minutes_{};
     DisplaySnapshot display_snapshot_{};
     int pending_resolution_index_{3};
     int pending_window_mode_{};
@@ -2075,21 +2080,13 @@ void GroundStationBackendRuntime::set_ready(bool ready) {
 
 MediaActionResult GroundStationBackendRuntime::start_recording(
     const std::string& directory, int format_index, int quality, int split_minutes) {
-    bool video_ready = false;
     {
         std::lock_guard lock(impl_->state_mutex_);
         if (impl_->state_.recording == RecordingState::recording ||
             impl_->state_.recording == RecordingState::starting) {
             return {false, "录像已经在运行"};
         }
-        video_ready = impl_->state_.connection == ConnectionState::connected &&
-                      impl_->state_.video_available;
-        if (video_ready) impl_->state_.recording = RecordingState::starting;
-    }
-    if (!video_ready) {
-        const std::string message = "没有有效视频码流，无法开始录像";
-        impl_->append_audit("WARN", message);
-        return {false, message};
+        impl_->state_.recording = RecordingState::starting;
     }
     {
         std::lock_guard lock(impl_->config_mutex_);
@@ -2099,30 +2096,14 @@ MediaActionResult GroundStationBackendRuntime::start_recording(
         impl_->config_.split_minutes = std::clamp(split_minutes, 0, 120);
     }
     impl_->save_config();
-    std::string error;
-    int recording_frame_rate = 60;
     {
-        std::lock_guard lock(impl_->config_mutex_);
-        recording_frame_rate = impl_->config_.frame_rate;
+        std::lock_guard lock(impl_->composite_mutex_);
+        impl_->pending_recording_directory_ = media_output_directory(directory);
+        impl_->pending_recording_format_ = std::clamp(format_index, 0, 2);
+        impl_->pending_recording_quality_ = std::clamp(quality, 1, 100);
+        impl_->pending_recording_split_minutes_ = std::clamp(split_minutes, 0, 120);
     }
-    const std::filesystem::path output_directory = media_output_directory(directory);
-    if (!impl_->recorder_.start(output_directory,
-                                std::clamp(format_index, 0, 2),
-                                std::clamp(quality, 1, 100),
-                                std::clamp(split_minutes, 0, 120),
-                                impl_->last_codec_, recording_frame_rate, error)) {
-        {
-            std::lock_guard lock(impl_->state_mutex_);
-            impl_->state_.recording = RecordingState::failed;
-        }
-        impl_->append_audit("ERROR", error);
-        return {false, error};
-    }
-    {
-        std::lock_guard lock(impl_->state_mutex_);
-        impl_->state_.recording = RecordingState::recording;
-    }
-    const std::string message = "录像已开始: " + impl_->recorder_.output_path().string();
+    const std::string message = "正在启动完整窗口录像";
     impl_->append_audit("INFO", message);
     return {true, message};
 }
@@ -2131,39 +2112,102 @@ void GroundStationBackendRuntime::stop_recording() {
     {
         std::lock_guard lock(impl_->state_mutex_);
         if (impl_->state_.recording != RecordingState::recording &&
+            impl_->state_.recording != RecordingState::starting &&
             impl_->state_.recording != RecordingState::failed) return;
         impl_->state_.recording = RecordingState::stopping;
     }
+    const bool recorder_active = impl_->recorder_.active();
     const auto path = impl_->recorder_.output_path();
     impl_->recorder_.stop();
     {
         std::lock_guard lock(impl_->state_mutex_);
         impl_->state_.recording = RecordingState::idle;
     }
-    impl_->append_audit("INFO", "录像已保存: " + path.string());
+    impl_->append_audit("INFO", recorder_active ? "录像已保存: " + path.string()
+                                                 : "录像启动已取消");
 }
 
 MediaActionResult GroundStationBackendRuntime::take_screenshot(
     const std::string& directory) {
-    media::DecodedFrame frame;
-    {
-        std::lock_guard lock(impl_->frame_mutex_);
-        frame = impl_->latest_frame_;
-    }
     std::filesystem::path target = media_output_directory(directory);
     std::error_code filesystem_error;
     std::filesystem::create_directories(target, filesystem_error);
-    target /= utf16("pip_link_" + local_time("%Y%m%d_%H%M%S") + ".png");
-    std::string error;
-    if (!filesystem_error && media::save_png(target, frame, error)) {
-        const std::string message = "截图已保存: " + target.string();
-        impl_->append_audit("INFO", message);
-        return {true, message};
-    } else {
-        if (error.empty()) error = "无法创建截图目录: " + filesystem_error.message();
+    if (filesystem_error) {
+        const std::string error = "无法创建截图目录: " + filesystem_error.message();
         impl_->append_audit("ERROR", error);
         return {false, error};
     }
+    target /= utf16("pip_link_" + local_time("%Y%m%d_%H%M%S") + "_" +
+                    std::to_string(GetTickCount64() % 1000) + ".png");
+    {
+        std::lock_guard lock(impl_->composite_mutex_);
+        if (impl_->pending_screenshot_) return {false, "已有截图请求正在处理"};
+        impl_->pending_screenshot_ = target;
+    }
+    return {true, "正在截取完整窗口画面"};
+}
+
+bool GroundStationBackendRuntime::needs_composited_frame() const {
+    {
+        std::lock_guard lock(impl_->composite_mutex_);
+        if (impl_->pending_screenshot_) return true;
+    }
+    const RecordingState state = runtime_state().recording;
+    return state == RecordingState::starting || state == RecordingState::recording;
+}
+
+void GroundStationBackendRuntime::submit_composited_frame(CompositedFrame frame) {
+    media::DecodedFrame media_frame{frame.width, frame.height, std::move(frame.bgra)};
+    std::optional<std::filesystem::path> screenshot;
+    {
+        std::lock_guard lock(impl_->composite_mutex_);
+        screenshot = std::exchange(impl_->pending_screenshot_, std::nullopt);
+    }
+    if (screenshot) {
+        std::string error;
+        if (media::save_png(*screenshot, media_frame, error)) {
+            impl_->append_audit("INFO", "截图已保存: " + screenshot->string());
+        } else {
+            impl_->append_audit("ERROR", error);
+        }
+    }
+
+    RecordingState state;
+    {
+        std::lock_guard lock(impl_->state_mutex_);
+        state = impl_->state_.recording;
+    }
+    if (state == RecordingState::starting) {
+        std::filesystem::path directory;
+        int format = 0;
+        int quality = 85;
+        int split_minutes = 0;
+        {
+            std::lock_guard lock(impl_->composite_mutex_);
+            directory = impl_->pending_recording_directory_;
+            format = impl_->pending_recording_format_;
+            quality = impl_->pending_recording_quality_;
+            split_minutes = impl_->pending_recording_split_minutes_;
+        }
+        std::string error;
+        if (!impl_->recorder_.start(directory, format, quality, split_minutes,
+                                    frame.width, frame.height, 60, error)) {
+            {
+                std::lock_guard lock(impl_->state_mutex_);
+                impl_->state_.recording = RecordingState::failed;
+            }
+            impl_->append_audit("ERROR", error);
+            return;
+        }
+        {
+            std::lock_guard lock(impl_->state_mutex_);
+            impl_->state_.recording = RecordingState::recording;
+        }
+        impl_->append_audit("INFO", "完整窗口录像已开始: " +
+                                     impl_->recorder_.output_path().string());
+        state = RecordingState::recording;
+    }
+    if (state == RecordingState::recording) impl_->recorder_.write(media_frame);
 }
 
 MediaActionResult GroundStationBackendRuntime::open_recordings_folder(

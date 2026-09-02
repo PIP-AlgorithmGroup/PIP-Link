@@ -63,6 +63,10 @@ MediaActionResult GroundStationBackendStub::take_screenshot(const std::string&) 
     return {true, "截图已保存"};
 }
 
+bool GroundStationBackendStub::needs_composited_frame() const { return false; }
+
+void GroundStationBackendStub::submit_composited_frame(CompositedFrame) {}
+
 MediaActionResult GroundStationBackendStub::open_recordings_folder(const std::string&) {
     return {true, "保存目录已打开"};
 }

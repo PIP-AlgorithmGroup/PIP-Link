@@ -39,6 +39,12 @@ struct VideoSurface final {
     int height{};
 };
 
+struct CompositedFrame final {
+    int width{};
+    int height{};
+    std::vector<std::uint8_t> bgra;
+};
+
 struct ControlInput final {
     float mouse_delta_x{};
     float mouse_delta_y{};
@@ -176,6 +182,8 @@ public:
     virtual void stop_recording() = 0;
     [[nodiscard]] virtual MediaActionResult take_screenshot(
         const std::string& directory) = 0;
+    [[nodiscard]] virtual bool needs_composited_frame() const = 0;
+    virtual void submit_composited_frame(CompositedFrame frame) = 0;
     [[nodiscard]] virtual MediaActionResult open_recordings_folder(
         const std::string& directory) = 0;
     [[nodiscard]] virtual DirectorySelectionResult choose_recording_directory(
@@ -231,6 +239,8 @@ public:
     void stop_recording() override;
     [[nodiscard]] MediaActionResult take_screenshot(
         const std::string& directory) override;
+    [[nodiscard]] bool needs_composited_frame() const override;
+    void submit_composited_frame(CompositedFrame frame) override;
     [[nodiscard]] MediaActionResult open_recordings_folder(
         const std::string& directory) override;
     [[nodiscard]] DirectorySelectionResult choose_recording_directory(
@@ -292,6 +302,8 @@ public:
     void stop_recording() override;
     [[nodiscard]] MediaActionResult take_screenshot(
         const std::string& directory) override;
+    [[nodiscard]] bool needs_composited_frame() const override;
+    void submit_composited_frame(CompositedFrame frame) override;
     [[nodiscard]] MediaActionResult open_recordings_folder(
         const std::string& directory) override;
     [[nodiscard]] DirectorySelectionResult choose_recording_directory(

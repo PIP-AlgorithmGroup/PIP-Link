@@ -55,6 +55,28 @@ private:
     std::unique_ptr<Impl> impl_;
 };
 
+class CompositedRecorder final {
+public:
+    CompositedRecorder();
+    ~CompositedRecorder();
+    CompositedRecorder(const CompositedRecorder&) = delete;
+    CompositedRecorder& operator=(const CompositedRecorder&) = delete;
+
+    [[nodiscard]] bool start(const std::filesystem::path& directory, int format_index,
+                             int quality, int split_minutes, int width, int height,
+                             int frame_rate, std::string& error);
+    void write(const DecodedFrame& frame);
+    void stop();
+    [[nodiscard]] bool active() const noexcept;
+    [[nodiscard]] bool healthy() const;
+    [[nodiscard]] std::string last_error() const;
+    [[nodiscard]] std::filesystem::path output_path() const;
+
+private:
+    class Impl;
+    std::unique_ptr<Impl> impl_;
+};
+
 [[nodiscard]] bool save_png(const std::filesystem::path& path, const DecodedFrame& frame,
                             std::string& error);
 

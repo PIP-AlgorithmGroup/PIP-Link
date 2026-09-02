@@ -76,10 +76,13 @@ std::string win32_error(const char* action) {
 std::string timestamp() {
     const auto now = std::chrono::system_clock::now();
     const std::time_t value = std::chrono::system_clock::to_time_t(now);
+    const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now.time_since_epoch()) % 1000;
     std::tm local{};
     localtime_s(&local, &value);
     std::ostringstream stream;
-    stream << std::put_time(&local, "%Y%m%d_%H%M%S");
+    stream << std::put_time(&local, "%Y%m%d_%H%M%S") << '_'
+           << std::setfill('0') << std::setw(3) << milliseconds.count();
     return stream.str();
 }
 
@@ -1054,6 +1057,220 @@ bool StreamRecorder::active() const noexcept { return impl_->running_; }
 bool StreamRecorder::healthy() const { return impl_->healthy(); }
 std::string StreamRecorder::last_error() const { return impl_->last_error(); }
 std::filesystem::path StreamRecorder::output_path() const { return impl_->output_path_; }
+
+class CompositedRecorder::Impl final {
+public:
+    ~Impl() { stop(); }
+
+    bool start(const std::filesystem::path& directory, int format_index, int quality,
+               int split_minutes, int width, int height, int frame_rate,
+               std::string& error) {
+        stop();
+        if (width <= 0 || height <= 0) {
+            error = "合成画面尺寸无效";
+            return false;
+        }
+        std::error_code filesystem_error;
+        std::filesystem::create_directories(directory, filesystem_error);
+        if (filesystem_error) {
+            error = "无法创建录像目录: " + filesystem_error.message();
+            return false;
+        }
+        wchar_t ffmpeg_path[MAX_PATH]{};
+        if (SearchPathW(nullptr, L"ffmpeg.exe", nullptr, MAX_PATH, ffmpeg_path, nullptr) == 0) {
+            error = "合成画面录像需要 ffmpeg.exe，请将其加入 PATH";
+            return false;
+        }
+        width_ = width;
+        height_ = height;
+        const int format = std::clamp(format_index, 0, 2);
+        const wchar_t* extension = format == 0 ? L".mp4" : L".mkv";
+        std::wstring filename = L"pip_link_";
+        const std::string suffix = timestamp();
+        filename.append(suffix.begin(), suffix.end());
+        if (split_minutes > 0) filename += L"_%03d";
+        filename += extension;
+        output_path_ = directory / filename;
+
+        SECURITY_ATTRIBUTES security{sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE};
+        HANDLE read_pipe = nullptr;
+        HANDLE write_pipe = nullptr;
+        if (!CreatePipe(&read_pipe, &write_pipe, &security, 4 * 1024 * 1024)) {
+            error = win32_error("无法创建 FFmpeg 合成帧管道");
+            return false;
+        }
+        SetHandleInformation(write_pipe, HANDLE_FLAG_INHERIT, 0);
+        stdin_write_.store(write_pipe);
+        HANDLE null_output = CreateFileW(L"NUL", GENERIC_WRITE,
+                                          FILE_SHARE_READ | FILE_SHARE_WRITE, &security,
+                                          OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        const int fps = std::clamp(frame_rate, 1, 60);
+        std::wstring command = quote_argument(ffmpeg_path) +
+            L" -hide_banner -loglevel error -y -use_wallclock_as_timestamps 1"
+            L" -f rawvideo -pixel_format bgra -video_size " +
+            std::to_wstring(width) + L"x" + std::to_wstring(height) +
+            L" -framerate " + std::to_wstring(fps) +
+            L" -i pipe:0 -map 0:v:0 -an ";
+        if (format == 2) {
+            command += L"-c:v ffv1 -level 3 ";
+        } else {
+            const int crf = std::clamp(51 - quality / 2, 0, 51);
+            command += L"-c:v libx264 -preset veryfast -tune zerolatency -pix_fmt yuv420p"
+                       L" -crf " + std::to_wstring(crf) + L" ";
+        }
+        if (split_minutes > 0) {
+            command += L"-f segment -segment_time " +
+                       std::to_wstring(split_minutes * 60) +
+                       L" -reset_timestamps 1 ";
+        }
+        command += quote_argument(utf16(output_path_));
+        STARTUPINFOW startup{};
+        startup.cb = sizeof(startup);
+        startup.dwFlags = STARTF_USESTDHANDLES;
+        startup.hStdInput = read_pipe;
+        startup.hStdOutput = null_output;
+        startup.hStdError = null_output;
+        std::vector<wchar_t> mutable_command(command.begin(), command.end());
+        mutable_command.push_back(L'\0');
+        const BOOL created = CreateProcessW(ffmpeg_path, mutable_command.data(), nullptr,
+                                            nullptr, TRUE, CREATE_NO_WINDOW, nullptr,
+                                            nullptr, &startup, &process_);
+        CloseHandle(read_pipe);
+        if (null_output != INVALID_HANDLE_VALUE) CloseHandle(null_output);
+        if (!created) {
+            CloseHandle(stdin_write_.exchange(nullptr));
+            error = win32_error("无法启动 FFmpeg 合成画面录像");
+            return false;
+        }
+        failed_ = false;
+        error_.clear();
+        running_ = true;
+        writer_ = std::thread([this] { writer_loop(); });
+        return true;
+    }
+
+    void write(const DecodedFrame& frame) {
+        if (!running_) return;
+        if (frame.width <= 0 || frame.height <= 0 ||
+            frame.bgra.size() != static_cast<std::size_t>(frame.width) * frame.height * 4) {
+            fail("收到无效的合成画面帧");
+            return;
+        }
+        std::vector<std::uint8_t> pixels;
+        if (frame.width == width_ && frame.height == height_) {
+            pixels = frame.bgra;
+        } else {
+            pixels.resize(static_cast<std::size_t>(width_) * height_ * 4);
+            for (int y = 0; y < height_; ++y) {
+                const int source_y = y * frame.height / height_;
+                for (int x = 0; x < width_; ++x) {
+                    const int source_x = x * frame.width / width_;
+                    const std::size_t source =
+                        (static_cast<std::size_t>(source_y) * frame.width + source_x) * 4;
+                    const std::size_t target =
+                        (static_cast<std::size_t>(y) * width_ + x) * 4;
+                    std::copy_n(frame.bgra.data() + source, 4, pixels.data() + target);
+                }
+            }
+        }
+        std::lock_guard lock(mutex_);
+        if (!running_) return;
+        if (queue_.size() >= 8) queue_.pop_front();
+        queue_.push_back(std::move(pixels));
+        condition_.notify_one();
+    }
+
+    void writer_loop() {
+        for (;;) {
+            std::vector<std::uint8_t> frame;
+            {
+                std::unique_lock lock(mutex_);
+                condition_.wait(lock, [this] { return !running_ || !queue_.empty(); });
+                if (queue_.empty() && !running_) break;
+                frame = std::move(queue_.front());
+                queue_.pop_front();
+            }
+            const HANDLE input = stdin_write_.load();
+            if (input == nullptr) continue;
+            std::size_t offset = 0;
+            while (offset < frame.size()) {
+                DWORD written = 0;
+                const DWORD count = static_cast<DWORD>(std::min<std::size_t>(
+                    frame.size() - offset, std::numeric_limits<DWORD>::max()));
+                if (!WriteFile(input, frame.data() + offset, count, &written, nullptr) ||
+                    written == 0) {
+                    if (running_) fail(win32_error("FFmpeg 合成帧写入失败"));
+                    break;
+                }
+                offset += written;
+            }
+        }
+    }
+
+    void fail(std::string message) {
+        std::lock_guard lock(mutex_);
+        failed_ = true;
+        error_ = std::move(message);
+    }
+
+    void stop() {
+        running_ = false;
+        condition_.notify_all();
+        if (writer_.joinable()) {
+            CancelSynchronousIo(writer_.native_handle());
+            if (const HANDLE input = stdin_write_.exchange(nullptr); input != nullptr) {
+                CloseHandle(input);
+            }
+            writer_.join();
+        } else if (const HANDLE input = stdin_write_.exchange(nullptr); input != nullptr) {
+            CloseHandle(input);
+        }
+        {
+            std::lock_guard lock(mutex_);
+            queue_.clear();
+        }
+        if (process_.hProcess != nullptr) {
+            if (WaitForSingleObject(process_.hProcess, 5000) == WAIT_TIMEOUT) {
+                TerminateProcess(process_.hProcess, 1);
+                WaitForSingleObject(process_.hProcess, 1000);
+            }
+            CloseHandle(process_.hThread);
+            CloseHandle(process_.hProcess);
+            process_ = {};
+        }
+    }
+
+    bool healthy() const { std::lock_guard lock(mutex_); return !failed_; }
+    std::string last_error() const { std::lock_guard lock(mutex_); return error_; }
+
+    std::atomic_bool running_{false};
+    std::atomic<HANDLE> stdin_write_{nullptr};
+    PROCESS_INFORMATION process_{};
+    std::thread writer_;
+    mutable std::mutex mutex_;
+    std::condition_variable condition_;
+    std::deque<std::vector<std::uint8_t>> queue_;
+    int width_{};
+    int height_{};
+    bool failed_{};
+    std::string error_;
+    std::filesystem::path output_path_;
+};
+
+CompositedRecorder::CompositedRecorder() : impl_(std::make_unique<Impl>()) {}
+CompositedRecorder::~CompositedRecorder() = default;
+bool CompositedRecorder::start(const std::filesystem::path& directory, int format_index,
+                               int quality, int split_minutes, int width, int height,
+                               int frame_rate, std::string& error) {
+    return impl_->start(directory, format_index, quality, split_minutes, width, height,
+                        frame_rate, error);
+}
+void CompositedRecorder::write(const DecodedFrame& frame) { impl_->write(frame); }
+void CompositedRecorder::stop() { impl_->stop(); }
+bool CompositedRecorder::active() const noexcept { return impl_->running_; }
+bool CompositedRecorder::healthy() const { return impl_->healthy(); }
+std::string CompositedRecorder::last_error() const { return impl_->last_error(); }
+std::filesystem::path CompositedRecorder::output_path() const { return impl_->output_path_; }
 
 bool save_png(const std::filesystem::path& path, const DecodedFrame& frame,
               std::string& error) {
