@@ -93,6 +93,93 @@ void draw_key_tag(ImDrawList* draw, ImVec2& cursor, const ImVec2 bounds,
     cursor.x += width + 5.0F * scale;
 }
 
+void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opacity,
+                        const std::array<float, 7>& activity) {
+    const auto part_color = [&](float intensity) {
+        return color_with_alpha(
+            blend_color({43.0F / 255.0F, 54.0F / 255.0F,
+                         65.0F / 255.0F, 225.0F / 255.0F},
+                        accent, intensity),
+            opacity);
+    };
+    const ImVec2 mouse_body_min{center.x - 36.0F * unit, center.y - 49.0F * unit};
+    const ImVec2 mouse_body_max{center.x + 36.0F * unit, center.y + 49.0F * unit};
+    const float button_bottom = mouse_body_min.y + 39.0F * unit;
+
+    draw->AddRectFilled({mouse_body_min.x, mouse_body_min.y + 3.0F * unit},
+                        {mouse_body_max.x, mouse_body_max.y + 3.0F * unit},
+                        IM_COL32(0, 0, 0, static_cast<int>(65.0F * opacity)),
+                        34.0F * unit);
+    draw->AddRectFilled(mouse_body_min, mouse_body_max,
+                        IM_COL32(13, 21, 29, static_cast<int>(245.0F * opacity)),
+                        34.0F * unit);
+    draw->AddRectFilled(mouse_body_min, {center.x - 1.0F * unit, button_bottom},
+                        part_color(activity[0]), 30.0F * unit,
+                        ImDrawFlags_RoundCornersTopLeft);
+    draw->AddRectFilled({center.x + 1.0F * unit, mouse_body_min.y},
+                        {mouse_body_max.x, button_bottom}, part_color(activity[2]),
+                        30.0F * unit, ImDrawFlags_RoundCornersTopRight);
+
+    draw->AddLine({center.x, mouse_body_min.y + 2.0F * unit},
+                  {center.x, button_bottom},
+                  IM_COL32(142, 172, 187, static_cast<int>(115.0F * opacity)),
+                  1.0F * unit);
+    draw->AddLine({mouse_body_min.x + 7.0F * unit, button_bottom},
+                  {mouse_body_max.x - 7.0F * unit, button_bottom},
+                  IM_COL32(142, 172, 187, static_cast<int>(85.0F * opacity)),
+                  1.0F * unit);
+
+    const float button_font_size = ImGui::GetFontSize() * 0.72F;
+    draw->AddText(ImGui::GetFont(), button_font_size,
+                  {center.x - 22.0F * unit, mouse_body_min.y + 13.0F * unit},
+                  IM_COL32(224, 237, 244, static_cast<int>(215.0F * opacity)), "L");
+    draw->AddText(ImGui::GetFont(), button_font_size,
+                  {center.x + 15.0F * unit, mouse_body_min.y + 13.0F * unit},
+                  IM_COL32(224, 237, 244, static_cast<int>(215.0F * opacity)), "R");
+
+    const ImVec2 wheel_min{center.x - 6.5F * unit,
+                           mouse_body_min.y + 8.0F * unit};
+    const ImVec2 wheel_max{center.x + 6.5F * unit,
+                           mouse_body_min.y + 34.0F * unit};
+    const float wheel_middle = (wheel_min.y + wheel_max.y) * 0.5F;
+    draw->AddRectFilled(wheel_min, {wheel_max.x, wheel_middle - 0.5F * unit},
+                        part_color(std::max(activity[1], activity[5])), 6.0F * unit,
+                        ImDrawFlags_RoundCornersTop);
+    draw->AddRectFilled({wheel_min.x, wheel_middle + 0.5F * unit}, wheel_max,
+                        part_color(std::max(activity[1], activity[6])), 6.0F * unit,
+                        ImDrawFlags_RoundCornersBottom);
+    const ImU32 wheel_mark = IM_COL32(
+        229, 241, 247, static_cast<int>(220.0F * opacity));
+    draw->AddLine({center.x - 2.8F * unit, wheel_min.y + 7.0F * unit},
+                  {center.x, wheel_min.y + 4.2F * unit}, wheel_mark, 1.2F * unit);
+    draw->AddLine({center.x, wheel_min.y + 4.2F * unit},
+                  {center.x + 2.8F * unit, wheel_min.y + 7.0F * unit},
+                  wheel_mark, 1.2F * unit);
+    draw->AddLine({center.x - 2.8F * unit, wheel_max.y - 7.0F * unit},
+                  {center.x, wheel_max.y - 4.2F * unit}, wheel_mark, 1.2F * unit);
+    draw->AddLine({center.x, wheel_max.y - 4.2F * unit},
+                  {center.x + 2.8F * unit, wheel_max.y - 7.0F * unit},
+                  wheel_mark, 1.2F * unit);
+
+    const ImVec2 side_button_min{mouse_body_min.x - 10.0F * unit,
+                                 mouse_body_min.y + 48.0F * unit};
+    for (std::size_t index = 0; index < 2; ++index) {
+        const float top = side_button_min.y + static_cast<float>(index) * 21.0F * unit;
+        draw->AddRectFilled({side_button_min.x, top},
+                            {mouse_body_min.x + 5.0F * unit, top + 16.0F * unit},
+                            part_color(activity[3 + index]), 5.0F * unit);
+        const char* label = index == 0 ? "4" : "5";
+        draw->AddText(ImGui::GetFont(), button_font_size,
+                      {side_button_min.x + 4.0F * unit, top + 1.0F * unit},
+                      IM_COL32(224, 237, 244, static_cast<int>(215.0F * opacity)),
+                      label);
+    }
+
+    draw->AddRect(mouse_body_min, mouse_body_max,
+                  IM_COL32(160, 190, 204, static_cast<int>(145.0F * opacity)),
+                  34.0F * unit, 0, 1.3F * unit);
+}
+
 }  // namespace
 
 GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backend_(backend) {
@@ -612,66 +699,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
                       IM_COL32(180, 197, 207, static_cast<int>(230.0F * opacity)),
                       "MOTION");
 
-        const auto mouse_part_color = [&](std::size_t index) {
-            return color_with_alpha(
-                blend_color({43.0F / 255.0F, 54.0F / 255.0F,
-                             65.0F / 255.0F, 205.0F / 255.0F},
-                            accent, mouse_input_activity_[index]),
-                opacity);
-        };
-        const ImVec2 mouse_body_min{p0.x + 196.0F * unit, p0.y + 12.0F * unit};
-        const ImVec2 mouse_body_max{p0.x + 306.0F * unit, p0.y + 108.0F * unit};
-        const float mouse_split_x = (mouse_body_min.x + mouse_body_max.x) * 0.5F;
-        const float button_bottom = mouse_body_min.y + 43.0F * unit;
-        draw->AddRectFilled(mouse_body_min, mouse_body_max,
-                            IM_COL32(13, 21, 29, static_cast<int>(225.0F * opacity)),
-                            42.0F * unit);
-        draw->AddRectFilled(mouse_body_min,
-                            {mouse_split_x - 1.0F * unit, button_bottom},
-                            mouse_part_color(0), 42.0F * unit,
-                            ImDrawFlags_RoundCornersTopLeft);
-        draw->AddRectFilled({mouse_split_x + 1.0F * unit, mouse_body_min.y},
-                            {mouse_body_max.x, button_bottom}, mouse_part_color(2),
-                            42.0F * unit, ImDrawFlags_RoundCornersTopRight);
-        draw->AddLine({mouse_split_x, mouse_body_min.y},
-                      {mouse_split_x, button_bottom},
-                      IM_COL32(135, 166, 181, static_cast<int>(95.0F * opacity)),
-                      1.0F * unit);
-        draw->AddLine({mouse_body_min.x + 9.0F * unit, button_bottom},
-                      {mouse_body_max.x - 9.0F * unit, button_bottom},
-                      IM_COL32(135, 166, 181, static_cast<int>(70.0F * opacity)),
-                      1.0F * unit);
-
-        const ImVec2 wheel_min{mouse_split_x - 8.0F * unit,
-                               mouse_body_min.y + 13.0F * unit};
-        const ImVec2 wheel_max{mouse_split_x + 8.0F * unit,
-                               mouse_body_min.y + 49.0F * unit};
-        draw->AddRectFilled(wheel_min, wheel_max, mouse_part_color(1), 7.0F * unit);
-        draw->AddTriangleFilled(
-            {mouse_split_x, wheel_min.y + 5.0F * unit},
-            {mouse_split_x - 4.0F * unit, wheel_min.y + 11.0F * unit},
-            {mouse_split_x + 4.0F * unit, wheel_min.y + 11.0F * unit},
-            mouse_part_color(5));
-        draw->AddTriangleFilled(
-            {mouse_split_x, wheel_max.y - 5.0F * unit},
-            {mouse_split_x - 4.0F * unit, wheel_max.y - 11.0F * unit},
-            {mouse_split_x + 4.0F * unit, wheel_max.y - 11.0F * unit},
-            mouse_part_color(6));
-
-        const ImVec2 side_button_min{mouse_body_min.x - 7.0F * unit,
-                                     mouse_body_min.y + 53.0F * unit};
-        draw->AddRectFilled(side_button_min,
-                            {mouse_body_min.x + 7.0F * unit,
-                             side_button_min.y + 14.0F * unit},
-                            mouse_part_color(3), 4.0F * unit);
-        draw->AddRectFilled({side_button_min.x,
-                             side_button_min.y + 19.0F * unit},
-                            {mouse_body_min.x + 7.0F * unit,
-                             side_button_min.y + 33.0F * unit},
-                            mouse_part_color(4), 4.0F * unit);
-        draw->AddRect(mouse_body_min, mouse_body_max,
-                      IM_COL32(154, 183, 198, static_cast<int>(120.0F * opacity)),
-                      42.0F * unit, 0, 1.2F * unit);
+        draw_mouse_diagram(draw, {p0.x + 247.0F * unit, p0.y + 60.0F * unit},
+                           unit, opacity, mouse_input_activity_);
 
         draw->AddLine({p0.x + 14.0F * unit, p0.y + 116.0F * unit},
                       {p1.x - 14.0F * unit, p0.y + 116.0F * unit},
