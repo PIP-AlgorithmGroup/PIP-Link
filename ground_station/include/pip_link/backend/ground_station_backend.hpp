@@ -65,6 +65,7 @@ enum class RecordingState {
     idle,
     starting,
     recording,
+    paused,
     stopping,
     failed,
 };
@@ -180,6 +181,7 @@ public:
     [[nodiscard]] virtual MediaActionResult start_recording(
         const std::string& directory, int format_index, int quality,
         int split_minutes) = 0;
+    [[nodiscard]] virtual MediaActionResult set_recording_paused(bool paused) = 0;
     virtual void stop_recording() = 0;
     [[nodiscard]] virtual MediaActionResult take_screenshot(
         const std::string& directory) = 0;
@@ -237,6 +239,7 @@ public:
     [[nodiscard]] MediaActionResult start_recording(
         const std::string& directory, int format_index, int quality,
         int split_minutes) override;
+    [[nodiscard]] MediaActionResult set_recording_paused(bool paused) override;
     void stop_recording() override;
     [[nodiscard]] MediaActionResult take_screenshot(
         const std::string& directory) override;
@@ -300,6 +303,7 @@ public:
     [[nodiscard]] MediaActionResult start_recording(
         const std::string& directory, int format_index, int quality,
         int split_minutes) override;
+    [[nodiscard]] MediaActionResult set_recording_paused(bool paused) override;
     void stop_recording() override;
     [[nodiscard]] MediaActionResult take_screenshot(
         const std::string& directory) override;

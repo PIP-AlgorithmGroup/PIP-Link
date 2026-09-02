@@ -1106,7 +1106,7 @@ public:
                                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         const int fps = std::clamp(frame_rate, 1, 60);
         std::wstring command = quote_argument(ffmpeg_path) +
-            L" -hide_banner -loglevel error -y -use_wallclock_as_timestamps 1"
+            L" -hide_banner -loglevel error -y"
             L" -f rawvideo -pixel_format rgba -video_size " +
             std::to_wstring(width) + L"x" + std::to_wstring(height) +
             L" -framerate " + std::to_wstring(fps) +

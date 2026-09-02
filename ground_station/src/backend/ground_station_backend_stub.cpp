@@ -57,6 +57,10 @@ MediaActionResult GroundStationBackendStub::start_recording(
     return {true, "录像已开始"};
 }
 
+MediaActionResult GroundStationBackendStub::set_recording_paused(bool paused) {
+    return {true, paused ? "录像已暂停" : "录像已继续"};
+}
+
 void GroundStationBackendStub::stop_recording() {}
 
 MediaActionResult GroundStationBackendStub::take_screenshot(const std::string&) {

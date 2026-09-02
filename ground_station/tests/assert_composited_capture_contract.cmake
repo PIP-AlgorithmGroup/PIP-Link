@@ -30,12 +30,25 @@ if(NOT software_cursor EQUAL -1)
     message(FATAL_ERROR "Recording must preserve the low-latency native OS cursor")
 endif()
 
-foreach(required_banner_text "录制中" "recording_overlay_started_at_" "AddTriangleFilled")
+foreach(required_banner_text
+        "录制中"
+        "已暂停"
+        "暂停"
+        "继续"
+        "结束"
+        "set_recording_paused"
+        "recording_elapsed_seconds_"
+        "AddTriangleFilled")
     string(FIND "${ui_source}" "${required_banner_text}" banner_position)
     if(banner_position EQUAL -1)
         message(FATAL_ERROR "Recording banner/cursor marker is missing: ${required_banner_text}")
     endif()
 endforeach()
+
+string(FIND "${media_source}" "use_wallclock_as_timestamps" wall_clock_timestamps)
+if(NOT wall_clock_timestamps EQUAL -1)
+    message(FATAL_ERROR "Paused recordings must use contiguous raw-frame timestamps")
+endif()
 
 foreach(required_screenshot_feedback
         "draw_screenshot_feedback"

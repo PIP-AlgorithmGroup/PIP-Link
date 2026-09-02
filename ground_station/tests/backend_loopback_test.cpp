@@ -341,6 +341,20 @@ int main() {
             std::cerr << "composited recording did not start\n";
             failed = true;
         }
+        const auto recording_paused = backend.set_recording_paused(true);
+        if (!recording_paused.succeeded || backend.runtime_state().recording !=
+                                               pip_link::backend::RecordingState::paused ||
+            backend.needs_composited_frame()) {
+            std::cerr << "composited recording did not pause\n";
+            failed = true;
+        }
+        const auto recording_resumed = backend.set_recording_paused(false);
+        if (!recording_resumed.succeeded || backend.runtime_state().recording !=
+                                                pip_link::backend::RecordingState::recording ||
+            !backend.needs_composited_frame()) {
+            std::cerr << "composited recording did not resume\n";
+            failed = true;
+        }
         backend.set_ready(true);
         backend.submit_control_input(input);
         if (!wait_for([&] { return saw_enabled_control.load(); },

@@ -140,6 +140,8 @@ private:
     float ready_hud_visibility_{1.0F};
     float ready_transition_{0.0F};
     float recording_overlay_visibility_{0.0F};
+    float recording_pause_hover_{0.0F};
+    float recording_stop_hover_{0.0F};
     float screenshot_feedback_visibility_{0.0F};
     float mouse_indicator_x_{0.0F};
     float mouse_indicator_y_{0.0F};
@@ -149,8 +151,8 @@ private:
     std::array<float, 7> settings_scroll_targets_{};
     float tab_scroll_target_{0.0F};
     float device_scroll_target_{0.0F};
-    double recording_started_at_{0.0};
-    double recording_overlay_started_at_{0.0};
+    double recording_elapsed_seconds_{0.0};
+    double recording_last_tick_at_{0.0};
     double scanning_started_at_{0.0};
     double display_confirmation_deadline_{0.0};
     std::array<int, 11> key_bindings_{};

@@ -317,7 +317,8 @@ bool GroundStationUi::is_connected() const noexcept {
 }
 
 bool GroundStationUi::is_recording() const noexcept {
-    return recording_state_ == backend::RecordingState::recording;
+    return recording_state_ == backend::RecordingState::recording ||
+           recording_state_ == backend::RecordingState::paused;
 }
 
 bool GroundStationUi::connection_busy() const noexcept {
@@ -347,7 +348,8 @@ void GroundStationUi::on_mouse_capture_failed() {
 
 void GroundStationUi::sync_backend_state() {
     const bool was_connected = is_connected();
-    const bool was_recording = is_recording();
+    const backend::RecordingState previous_recording_state = recording_state_;
+    const double now = ImGui::GetTime();
     const backend::RuntimeState state = backend_.runtime_state();
     connection_state_ = state.connection;
     recording_state_ = state.recording;
@@ -381,11 +383,18 @@ void GroundStationUi::sync_backend_state() {
     if (was_connected && !is_connected()) {
         leave_ready("连接已断开，已自动退出 READY");
     }
-    if (!was_recording && is_recording()) {
-        recording_started_at_ = ImGui::GetTime();
-    } else if (was_recording && !is_recording()) {
-        recording_started_at_ = 0.0;
+    if (previous_recording_state == backend::RecordingState::recording &&
+        recording_last_tick_at_ > 0.0) {
+        recording_elapsed_seconds_ += std::max(0.0, now - recording_last_tick_at_);
     }
+    if ((previous_recording_state == backend::RecordingState::idle ||
+         previous_recording_state == backend::RecordingState::failed) &&
+        recording_state_ == backend::RecordingState::starting) {
+        recording_elapsed_seconds_ = 0.0;
+    }
+    recording_last_tick_at_ = recording_state_ == backend::RecordingState::recording
+                                  ? now
+                                  : 0.0;
 }
 
 void GroundStationUi::open_settings() {
@@ -570,15 +579,13 @@ void GroundStationUi::draw(float delta_seconds, float display_scale) {
 void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
     const backend::RecordingState current = backend_.runtime_state().recording;
     const bool active = current == backend::RecordingState::starting ||
-                        current == backend::RecordingState::recording;
+                        current == backend::RecordingState::recording ||
+                        current == backend::RecordingState::paused;
+    const bool paused = current == backend::RecordingState::paused;
     const bool capture_requested = backend_.needs_composited_frame();
-    if (active && recording_overlay_started_at_ <= 0.0) {
-        recording_overlay_started_at_ = ImGui::GetTime();
-    }
     recording_overlay_visibility_ = animate_toward(
         recording_overlay_visibility_, active ? 1.0F : 0.0F, delta_seconds, 0.10F);
     if (!active && recording_overlay_visibility_ < 0.01F && !capture_requested) {
-        recording_overlay_started_at_ = 0.0;
         return;
     }
 
@@ -586,7 +593,7 @@ void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const float visibility = recording_overlay_visibility_;
     const float slide = visibility * visibility * (3.0F - 2.0F * visibility);
-    const float badge_width = 214.0F * scale;
+    const float badge_width = 370.0F * scale;
     const float badge_height = 42.0F * scale;
     const float visible_y = viewport->Pos.y + 16.0F * scale;
     const float hidden_y = viewport->Pos.y - badge_height - 8.0F * scale;
@@ -594,6 +601,48 @@ void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
     const float badge_x = viewport->Pos.x + (viewport->Size.x - badge_width) * 0.5F;
     const ImVec2 badge_min{badge_x, badge_y};
     const ImVec2 badge_max{badge_x + badge_width, badge_y + badge_height};
+
+    bool pause_hovered = false;
+    bool stop_hovered = false;
+    bool pause_clicked = false;
+    bool stop_clicked = false;
+    if (active && visibility > 0.55F) {
+        ImGui::SetNextWindowPos(badge_min);
+        ImGui::SetNextWindowSize({badge_width, badge_height});
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0.0F, 0.0F});
+        constexpr ImGuiWindowFlags control_flags =
+            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBackground |
+            ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoScrollbar |
+            ImGuiWindowFlags_NoScrollWithMouse;
+        ImGui::Begin("##RecordingOverlayControls", nullptr, control_flags);
+        if (current != backend::RecordingState::starting) {
+            ImGui::SetCursorScreenPos({badge_x + 216.0F * scale, badge_y});
+            pause_clicked = ImGui::InvisibleButton(
+                "##PauseResumeRecording", {76.0F * scale, badge_height});
+            pause_hovered = ImGui::IsItemHovered();
+        }
+        ImGui::SetCursorScreenPos({badge_x + 292.0F * scale, badge_y});
+        stop_clicked = ImGui::InvisibleButton(
+            "##StopRecording", {78.0F * scale, badge_height});
+        stop_hovered = ImGui::IsItemHovered();
+        ImGui::End();
+        ImGui::PopStyleVar();
+    }
+    recording_pause_hover_ = animate_toward(
+        recording_pause_hover_, pause_hovered ? 1.0F : 0.0F, delta_seconds, 0.06F);
+    recording_stop_hover_ = animate_toward(
+        recording_stop_hover_, stop_hovered ? 1.0F : 0.0F, delta_seconds, 0.06F);
+
+    if (pause_clicked) {
+        const backend::MediaActionResult result = backend_.set_recording_paused(!paused);
+        set_feedback(result.message);
+    }
+    if (stop_clicked) {
+        backend_.stop_recording();
+        set_feedback("正在结束并保存录像");
+    }
+
     draw->AddRectFilled({badge_min.x + 2.0F * scale, badge_min.y + 4.0F * scale},
                         {badge_max.x + 2.0F * scale, badge_max.y + 4.0F * scale},
                         ImGui::GetColorU32({0.01F, 0.04F, 0.07F, 0.18F * visibility}),
@@ -605,21 +654,22 @@ void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
                   ImGui::GetColorU32({0.10F, 0.65F, 0.95F, 0.55F * visibility}),
                   12.0F * scale, 0, 1.0F * scale);
 
-    const double elapsed_seconds = std::max(
-        0.0, ImGui::GetTime() - recording_overlay_started_at_);
-    const int elapsed = static_cast<int>(elapsed_seconds);
+    const int elapsed = static_cast<int>(std::max(0.0, recording_elapsed_seconds_));
     char duration[16]{};
     std::snprintf(duration, sizeof(duration), "%02d:%02d:%02d", elapsed / 3600,
                   (elapsed / 60) % 60, elapsed % 60);
     const float center_y = badge_y + badge_height * 0.5F;
-    const float pulse = 0.72F + 0.28F *
+    const float pulse = paused ? 1.0F : 0.72F + 0.28F *
         std::sin(static_cast<float>(ImGui::GetTime()) * 5.0F);
     draw->AddCircleFilled({badge_x + 20.0F * scale, center_y}, 4.5F * scale,
-                          ImGui::GetColorU32({1.00F, 0.22F, 0.18F,
+                          ImGui::GetColorU32({paused ? 1.00F : 1.00F,
+                                              paused ? 0.62F : 0.22F,
+                                              paused ? 0.12F : 0.18F,
                                               visibility * pulse}), 20);
     draw->AddText({badge_x + 33.0F * scale,
                    center_y - ImGui::GetFontSize() * 0.5F},
-                  ImGui::GetColorU32({0.94F, 0.97F, 1.00F, visibility}), "录制中");
+                  ImGui::GetColorU32({0.94F, 0.97F, 1.00F, visibility}),
+                  paused ? "已暂停" : "录制中");
     draw->AddLine({badge_x + 103.0F * scale, badge_y + 10.0F * scale},
                   {badge_x + 103.0F * scale, badge_max.y - 10.0F * scale},
                   ImGui::GetColorU32({0.36F, 0.45F, 0.53F, 0.65F * visibility}),
@@ -627,6 +677,48 @@ void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
     draw->AddText({badge_x + 118.0F * scale,
                    center_y - ImGui::GetFontSize() * 0.5F},
                   ImGui::GetColorU32({0.65F, 0.86F, 1.00F, visibility}), duration);
+
+    const ImVec2 pause_min{badge_x + 216.0F * scale, badge_y};
+    const ImVec2 pause_max{badge_x + 292.0F * scale, badge_max.y};
+    const ImVec2 stop_min{pause_max.x, badge_y};
+    draw->AddRectFilled(pause_min, pause_max,
+                        ImGui::GetColorU32({0.08F, 0.42F, 0.58F,
+                                           0.30F * recording_pause_hover_ * visibility}));
+    draw->AddRectFilled(stop_min, badge_max,
+                        ImGui::GetColorU32({0.74F, 0.16F, 0.13F,
+                                           0.36F * recording_stop_hover_ * visibility}),
+                        12.0F * scale, ImDrawFlags_RoundCornersRight);
+    for (float separator_x : {216.0F, 292.0F}) {
+        draw->AddLine({badge_x + separator_x * scale, badge_y + 10.0F * scale},
+                      {badge_x + separator_x * scale, badge_max.y - 10.0F * scale},
+                      ImGui::GetColorU32({0.36F, 0.45F, 0.53F,
+                                         0.65F * visibility}), 1.0F * scale);
+    }
+    const ImU32 control_text = ImGui::GetColorU32(
+        {0.88F, 0.94F, 0.98F,
+         visibility * (current == backend::RecordingState::starting ? 0.42F : 1.0F)});
+    if (paused) {
+        draw->AddTriangleFilled({badge_x + 228.0F * scale, center_y - 5.0F * scale},
+                                {badge_x + 228.0F * scale, center_y + 5.0F * scale},
+                                {badge_x + 236.0F * scale, center_y}, control_text);
+    } else {
+        draw->AddRectFilled({badge_x + 228.0F * scale, center_y - 5.0F * scale},
+                            {badge_x + 231.0F * scale, center_y + 5.0F * scale},
+                            control_text, 1.0F * scale);
+        draw->AddRectFilled({badge_x + 234.0F * scale, center_y - 5.0F * scale},
+                            {badge_x + 237.0F * scale, center_y + 5.0F * scale},
+                            control_text, 1.0F * scale);
+    }
+    draw->AddText({badge_x + 243.0F * scale,
+                   center_y - ImGui::GetFontSize() * 0.5F},
+                  control_text, paused ? "继续" : "暂停");
+    const ImU32 stop_text = ImGui::GetColorU32({1.00F, 0.82F, 0.80F, visibility});
+    draw->AddRectFilled({badge_x + 305.0F * scale, center_y - 4.5F * scale},
+                        {badge_x + 314.0F * scale, center_y + 4.5F * scale},
+                        stop_text, 1.5F * scale);
+    draw->AddText({badge_x + 320.0F * scale,
+                   center_y - ImGui::GetFontSize() * 0.5F},
+                  stop_text, "结束");
 
     const ImGuiIO& io = ImGui::GetIO();
     if (capture_requested && !wants_relative_mouse_mode() &&

@@ -2091,6 +2091,7 @@ MediaActionResult GroundStationBackendRuntime::start_recording(
     {
         std::lock_guard lock(impl_->state_mutex_);
         if (impl_->state_.recording == RecordingState::recording ||
+            impl_->state_.recording == RecordingState::paused ||
             impl_->state_.recording == RecordingState::starting) {
             return {false, "录像已经在运行"};
         }
@@ -2116,10 +2117,27 @@ MediaActionResult GroundStationBackendRuntime::start_recording(
     return {true, message};
 }
 
+MediaActionResult GroundStationBackendRuntime::set_recording_paused(bool paused) {
+    {
+        std::lock_guard lock(impl_->state_mutex_);
+        const RecordingState expected = paused ? RecordingState::recording
+                                               : RecordingState::paused;
+        if (impl_->state_.recording != expected) {
+            return {false, paused ? "当前录像无法暂停" : "当前录像无法继续"};
+        }
+        impl_->state_.recording = paused ? RecordingState::paused
+                                         : RecordingState::recording;
+    }
+    const std::string message = paused ? "录像已暂停" : "录像已继续";
+    impl_->append_audit("INFO", message);
+    return {true, message};
+}
+
 void GroundStationBackendRuntime::stop_recording() {
     {
         std::lock_guard lock(impl_->state_mutex_);
         if (impl_->state_.recording != RecordingState::recording &&
+            impl_->state_.recording != RecordingState::paused &&
             impl_->state_.recording != RecordingState::starting &&
             impl_->state_.recording != RecordingState::failed) return;
         impl_->state_.recording = RecordingState::stopping;

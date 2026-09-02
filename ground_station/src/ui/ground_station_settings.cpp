@@ -822,6 +822,9 @@ void GroundStationUi::draw_recording_page(float scale) {
     } else if (recording_state_ == backend::RecordingState::recording) {
         recording_label = "正在录制";
         recording_color = danger;
+    } else if (recording_state_ == backend::RecordingState::paused) {
+        recording_label = "录制已暂停";
+        recording_color = warning;
     } else if (recording_state_ == backend::RecordingState::stopping) {
         recording_label = "正在保存录制";
         recording_color = warning;
@@ -843,9 +846,25 @@ void GroundStationUi::draw_recording_page(float scale) {
             }
         }
     } else if (is_recording()) {
-        const int elapsed = static_cast<int>(ImGui::GetTime() - recording_started_at_);
-        ImGui::TextColored(danger, "REC  %02d:%02d:%02d", elapsed / 3600,
+        const int elapsed = static_cast<int>(recording_elapsed_seconds_);
+        ImGui::TextColored(recording_state_ == backend::RecordingState::paused
+                               ? warning
+                               : danger,
+                           "%s  %02d:%02d:%02d",
+                           recording_state_ == backend::RecordingState::paused
+                               ? "PAUSED"
+                               : "REC",
+                           elapsed / 3600,
                            (elapsed / 60) % 60, elapsed % 60);
+        if (action_button(recording_state_ == backend::RecordingState::paused
+                              ? "继续录制"
+                              : "暂停录制",
+                          130.0F * scale)) {
+            const backend::MediaActionResult result = backend_.set_recording_paused(
+                recording_state_ != backend::RecordingState::paused);
+            set_feedback(result.message);
+        }
+        ImGui::SameLine();
         if (action_button("停止并保存", 160.0F * scale)) {
             backend_.stop_recording();
             set_feedback("录像停止请求已发送，等待后端确认");
