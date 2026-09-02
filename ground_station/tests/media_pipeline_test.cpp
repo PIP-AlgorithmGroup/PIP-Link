@@ -48,6 +48,41 @@ int main(int argc, char** argv) {
             }
         }
         access_unit_starts.push_back(h264.size());
+        if (access_unit_starts.size() <= 31) {
+            std::cerr << "H.264 fixture does not contain a second GOP\n";
+            return 1;
+        }
+        pip_link::backend::media::FrameDecoder midstream_decoder;
+        midstream_decoder.set_h264_preference(2);
+        pip_link::backend::media::DecodedFrame midstream_frame;
+        std::string midstream_error;
+        const std::size_t midstream_start = access_unit_starts[10];
+        if (!midstream_decoder.decode(
+                1, std::span<const std::uint8_t>{h264}.subspan(
+                       midstream_start, access_unit_starts[11] - midstream_start),
+                midstream_frame, midstream_error) ||
+            !midstream_error.empty()) {
+            std::cerr << "Mid-stream H.264 startup emitted an SPS error: "
+                      << midstream_error << '\n';
+            return 1;
+        }
+        for (std::size_t index = 11;
+             midstream_frame.bgra.empty() && index + 1 < access_unit_starts.size();
+             ++index) {
+            const std::size_t start = access_unit_starts[index];
+            if (!midstream_decoder.decode(
+                    1, std::span<const std::uint8_t>{h264}.subspan(
+                           start, access_unit_starts[index + 1] - start),
+                    midstream_frame, midstream_error)) {
+                std::cerr << "Mid-stream H.264 decoder did not recover: "
+                          << midstream_error << '\n';
+                return 1;
+            }
+        }
+        if (midstream_frame.bgra.empty()) {
+            std::cerr << "Mid-stream H.264 decoder never recovered at the next IDR\n";
+            return 1;
+        }
         for (std::size_t index = 0;
              h264_ok && h264_frame.bgra.empty() && index + 1 < access_unit_starts.size();
              ++index) {

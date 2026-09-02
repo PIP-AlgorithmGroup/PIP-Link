@@ -655,6 +655,10 @@ public:
 
     bool decode_h264_ffmpeg(std::span<const std::uint8_t> encoded,
                             DecodedFrame& output, std::string& error) {
+        if (ffmpeg_process_.hProcess == nullptr && !h264_dimensions(encoded)) {
+            error.clear();
+            return true;
+        }
         if (!start_ffmpeg_decoder(encoded, error)) return false;
         std::size_t offset = 0;
         while (offset < encoded.size()) {
