@@ -289,6 +289,7 @@ GroundStationUi::GroundStationUi(backend::GroundStationBackend& backend) : backe
                   key_bindings_.begin());
     }
     remote_parameters_revision_ = backend_.runtime_state().remote_parameters_revision;
+    screenshot_revision_ = backend_.runtime_state().screenshot_revision;
 }
 
 bool GroundStationUi::quit_requested() const noexcept {
@@ -354,6 +355,11 @@ void GroundStationUi::sync_backend_state() {
         set_feedback(state.video_available ? "后端已退出 READY" : "视频信号中断，已退出 READY");
     }
     ready_ = state.ready;
+
+    if (state.screenshot_revision != screenshot_revision_) {
+        screenshot_revision_ = state.screenshot_revision;
+        screenshot_feedback_visibility_ = 1.0F;
+    }
 
     if (state.remote_parameters_revision != remote_parameters_revision_) {
         const backend::BackendPreferences settings = backend_.preferences();
@@ -556,6 +562,7 @@ void GroundStationUi::draw(float delta_seconds, float display_scale) {
     else draw_fpv(delta_seconds, display_scale);
     draw_console(delta_seconds, display_scale);
     draw_recording_overlay(delta_seconds, display_scale);
+    draw_screenshot_feedback(delta_seconds, display_scale);
 
     if (video_settings_debounce_.tick(delta_seconds)) submit_video_settings();
 }
@@ -648,6 +655,31 @@ void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
                                 ImGui::GetColorU32({0.12F, 0.72F, 1.00F,
                                                    0.78F * cursor_visibility}));
     }
+}
+
+void GroundStationUi::draw_screenshot_feedback(float delta_seconds, float scale) {
+    screenshot_feedback_visibility_ = animate_toward(
+        screenshot_feedback_visibility_, 0.0F, delta_seconds, 0.20F);
+    if (screenshot_feedback_visibility_ < 0.01F) return;
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 min = viewport->Pos;
+    const ImVec2 max{viewport->Pos.x + viewport->Size.x,
+                     viewport->Pos.y + viewport->Size.y};
+    const float visibility = screenshot_feedback_visibility_;
+    const float edge = (18.0F + 18.0F * visibility) * scale;
+    const ImU32 blue = ImGui::GetColorU32(
+        {0.00F, 0.58F, 1.00F, 0.42F * visibility});
+    const ImU32 clear = ImGui::GetColorU32({0.00F, 0.58F, 1.00F, 0.0F});
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->AddRectFilledMultiColor(min, {max.x, min.y + edge},
+                                  blue, blue, clear, clear);
+    draw->AddRectFilledMultiColor({min.x, max.y - edge}, max,
+                                  clear, clear, blue, blue);
+    draw->AddRectFilledMultiColor(min, {min.x + edge, max.y},
+                                  blue, clear, clear, blue);
+    draw->AddRectFilledMultiColor({max.x - edge, min.y}, max,
+                                  clear, blue, blue, clear);
 }
 
 void GroundStationUi::draw_fpv(float delta_seconds, float scale) {

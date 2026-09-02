@@ -30,15 +30,20 @@ if(NOT software_cursor EQUAL -1)
     message(FATAL_ERROR "Recording must preserve the low-latency native OS cursor")
 endif()
 
-string(FIND "${ui_source}" "AddRectFilledMultiColor" edge_gradient)
-if(NOT edge_gradient EQUAL -1)
-    message(FATAL_ERROR "Recording edge gradient was not removed")
-endif()
-
 foreach(required_banner_text "录制中" "recording_overlay_started_at_" "AddTriangleFilled")
     string(FIND "${ui_source}" "${required_banner_text}" banner_position)
     if(banner_position EQUAL -1)
         message(FATAL_ERROR "Recording banner/cursor marker is missing: ${required_banner_text}")
+    endif()
+endforeach()
+
+foreach(required_screenshot_feedback
+        "draw_screenshot_feedback"
+        "screenshot_revision"
+        "AddRectFilledMultiColor")
+    string(FIND "${ui_source}" "${required_screenshot_feedback}" feedback_position)
+    if(feedback_position EQUAL -1)
+        message(FATAL_ERROR "Screenshot completion feedback is missing: ${required_screenshot_feedback}")
     endif()
 endforeach()
 

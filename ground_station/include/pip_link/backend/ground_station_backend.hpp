@@ -75,6 +75,7 @@ struct RuntimeState final {
     bool ready{};
     bool video_available{};
     std::uint64_t remote_parameters_revision{};
+    std::uint64_t screenshot_revision{};
 };
 
 struct BackendPreferences final {

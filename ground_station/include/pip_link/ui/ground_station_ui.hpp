@@ -44,6 +44,7 @@ private:
     void draw_settings_tabs(float delta_seconds, float scale);
     void draw_console(float delta_seconds, float scale);
     void draw_recording_overlay(float delta_seconds, float scale);
+    void draw_screenshot_feedback(float delta_seconds, float scale);
     static int console_input_callback(ImGuiInputTextCallbackData* data);
     void draw_connection_page(float scale);
     void draw_video_page(float scale);
@@ -123,6 +124,7 @@ private:
     int sharpness_{0};
     int denoise_{0};
     std::uint64_t remote_parameters_revision_{};
+    std::uint64_t screenshot_revision_{};
     int language_index_{0};
     int rebinding_action_{-1};
     float mouse_sensitivity_{1.0F};
@@ -138,6 +140,7 @@ private:
     float ready_hud_visibility_{1.0F};
     float ready_transition_{0.0F};
     float recording_overlay_visibility_{0.0F};
+    float screenshot_feedback_visibility_{0.0F};
     float mouse_indicator_x_{0.0F};
     float mouse_indicator_y_{0.0F};
     float console_height_{0.0F};

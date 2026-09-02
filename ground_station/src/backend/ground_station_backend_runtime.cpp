@@ -2175,6 +2175,10 @@ void GroundStationBackendRuntime::submit_composited_frame(CompositedFrame frame)
         std::string error;
         const media::DecodedFrame screenshot_frame = rgba_to_bgra_for_png(media_frame);
         if (media::save_png(*screenshot, screenshot_frame, error)) {
+            {
+                std::lock_guard lock(impl_->state_mutex_);
+                ++impl_->state_.screenshot_revision;
+            }
             impl_->append_audit("INFO", "截图已保存: " + screenshot->string());
         } else {
             impl_->append_audit("ERROR", error);
