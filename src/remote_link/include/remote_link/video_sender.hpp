@@ -25,6 +25,7 @@ public:
         uint16_t    port          = 5000;
         bool        fec_enabled   = false;
         float       fec_redundancy = 0.2f;
+        int         udp_mtu       = 1400;
         EncoderConfig encoder_cfg;
     };
 

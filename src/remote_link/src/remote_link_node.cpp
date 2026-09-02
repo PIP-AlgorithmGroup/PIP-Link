@@ -4,7 +4,9 @@
 #include "remote_link/mdns_service.hpp"
 
 #include <std_msgs/msg/string.hpp>
+#include <rcl_interfaces/msg/parameter_descriptor.hpp>
 #include <nlohmann/json.hpp>
+#include <opencv2/imgproc.hpp>
 #include <rclcpp_components/register_node_macro.hpp>
 #include <chrono>
 #include <algorithm>
@@ -21,6 +23,14 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
 : rclcpp::Node("remote_link", options)
 {
     // --- Declare parameters ---
+    rcl_interfaces::msg::ParameterDescriptor topic_descriptor;
+    topic_descriptor.read_only = true;
+    const auto frame_topic = declare_parameter<std::string>(
+        "frame_topic", "/io/video_frame", topic_descriptor);
+    const auto command_topic = declare_parameter<std::string>(
+        "command_topic", "/io/remote_command", topic_descriptor);
+    const auto stats_topic = declare_parameter<std::string>(
+        "stats_topic", "/remote_link/stats", topic_descriptor);
     declare_parameter("air_unit_name",       "air_unit_01");
     declare_parameter("mdns.interface_name", "wlP1p1s0");
     declare_parameter("control_port",        6000);
@@ -31,6 +41,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     declare_parameter("encoder",             std::string("h264"));
     declare_parameter("fec_enabled",         false);
     declare_parameter("fec_redundancy",      0.2);
+    declare_parameter("udp_mtu",             1400);
     declare_parameter("client_timeout_s",    5.0);
     declare_parameter("debug.verbose",       false);
     declare_parameter("brightness",          0);
@@ -45,12 +56,12 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     auto qos = rclcpp::QoS(1).best_effort().durability_volatile();
 
     // --- Publisher ---
-    cmd_pub_ = create_publisher<pip_vision_interfaces::msg::RemoteCommand>(
-        "/remote_command", rclcpp::QoS(10));
+    cmd_pub_ = create_publisher<pip_msgs::msg::RemoteCommand>(
+        command_topic, rclcpp::QoS(10));
 
     // --- Subscriber ---
     frame_sub_ = create_subscription<sensor_msgs::msg::Image>(
-        "/sending_frame", qos,
+        frame_topic, qos,
         [this](sensor_msgs::msg::Image::ConstSharedPtr msg) {
             on_frame(msg);
         });
@@ -68,6 +79,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
     vs_cfg.encoder_cfg.denoise        = get_parameter("denoise").as_int();
     vs_cfg.fec_enabled   = get_parameter("fec_enabled").as_bool();
     vs_cfg.fec_redundancy = static_cast<float>(get_parameter("fec_redundancy").as_double());
+    vs_cfg.udp_mtu = get_parameter("udp_mtu").as_int();
 
     video_tx_ = std::make_unique<VideoSender>(vs_cfg, get_logger());
     video_tx_->start();
@@ -78,9 +90,10 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
 
     control_rx_->set_command_callback(
         [this](const std::string& ip, uint32_t seq, double t1,
+               bool is_ready,
                const uint8_t kb[10], int16_t dx, int16_t dy,
                uint8_t btn, int8_t scroll) {
-            on_command(ip, seq, t1, kb, dx, dy, btn, scroll);
+            on_command(ip, seq, t1, is_ready, kb, dx, dy, btn, scroll);
         });
 
     control_rx_->set_param_update_callback(
@@ -88,7 +101,10 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
             on_param_update_from_udp(seq, json);
         });
 
-    control_rx_->set_verbose(debug_verbose_);
+    control_rx_->set_param_query_callback(
+        [this] { return params_to_json(); });
+
+    control_rx_->set_verbose(debug_verbose_.load());
     control_rx_->start();
 
     // --- MdnsService ---
@@ -110,7 +126,7 @@ RemoteLinkNode::RemoteLinkNode(const rclcpp::NodeOptions& options)
 
     // --- Stats publisher ---
     stats_pub_ = create_publisher<std_msgs::msg::String>(
-        "/remote_link/stats", rclcpp::QoS(10));
+        stats_topic, rclcpp::QoS(10));
 
     // --- Watchdog timer (2s) ---
     watchdog_timer_ = create_wall_timer(
@@ -133,30 +149,79 @@ RemoteLinkNode::~RemoteLinkNode() {
 }
 
 void RemoteLinkNode::on_frame(sensor_msgs::msg::Image::ConstSharedPtr msg) {
+    if (msg->width == 0 || msg->height == 0 || msg->data.empty()) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Ignoring an empty video frame");
+        return;
+    }
+
+    int source_type = 0;
+    int conversion = -1;
+    std::size_t bytes_per_pixel = 0;
+    if (msg->encoding == "bgr8") {
+        source_type = CV_8UC3;
+        bytes_per_pixel = 3;
+    } else if (msg->encoding == "rgb8") {
+        source_type = CV_8UC3;
+        bytes_per_pixel = 3;
+        conversion = cv::COLOR_RGB2BGR;
+    } else if (msg->encoding == "bgra8") {
+        source_type = CV_8UC4;
+        bytes_per_pixel = 4;
+        conversion = cv::COLOR_BGRA2BGR;
+    } else if (msg->encoding == "rgba8") {
+        source_type = CV_8UC4;
+        bytes_per_pixel = 4;
+        conversion = cv::COLOR_RGBA2BGR;
+    } else if (msg->encoding == "mono8") {
+        source_type = CV_8UC1;
+        bytes_per_pixel = 1;
+        conversion = cv::COLOR_GRAY2BGR;
+    } else {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Unsupported video encoding: %s", msg->encoding.c_str());
+        return;
+    }
+
+    const std::size_t minimum_step = static_cast<std::size_t>(msg->width) * bytes_per_pixel;
+    const std::size_t required_size = static_cast<std::size_t>(msg->step) * msg->height;
+    if (msg->step < minimum_step || msg->data.size() < required_size) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 5000,
+                             "Ignoring malformed video frame: step=%u size=%zu",
+                             msg->step, msg->data.size());
+        return;
+    }
+
     if (!frame_received_) {
         frame_received_ = true;
         RCLCPP_INFO(get_logger(), "First frame received: %ux%u encoding=%s",
                     msg->width, msg->height, msg->encoding.c_str());
     }
-    cv::Mat frame(static_cast<int>(msg->height), static_cast<int>(msg->width),
-                  CV_8UC3, const_cast<uint8_t*>(msg->data.data()));
-    video_tx_->push_frame(frame);
+    const cv::Mat source(static_cast<int>(msg->height), static_cast<int>(msg->width),
+                         source_type, const_cast<uint8_t*>(msg->data.data()), msg->step);
+    if (conversion < 0) {
+        video_tx_->push_frame(source);
+    } else {
+        cv::Mat bgr;
+        cv::cvtColor(source, bgr, conversion);
+        video_tx_->push_frame(bgr);
+    }
 }
 
 void RemoteLinkNode::on_command(
     const std::string& client_ip,
-    uint32_t seq, double t1,
+    uint32_t seq, double t1, bool is_ready,
     const uint8_t kb[10],
     int16_t mouse_dx, int16_t mouse_dy,
     uint8_t mouse_buttons, int8_t scroll_delta)
 {
-    auto msg = std::make_unique<pip_vision_interfaces::msg::RemoteCommand>();
+    auto msg = std::make_unique<pip_msgs::msg::RemoteCommand>();
     msg->header.stamp = now();
     msg->header.frame_id = "";
     msg->client_ip = client_ip;
     msg->seq = seq;
     msg->t1  = t1;
-    msg->is_ready = true;
+    msg->is_ready = is_ready;
 
     // mouse velocity
     constexpr double DT_MIN = 0.001;
@@ -204,6 +269,8 @@ void RemoteLinkNode::on_param_update_from_udp(
 
         if (j.contains("bitrate"))
             params.emplace_back("target_bitrate_kbps", j["bitrate"].get<int>());
+        if (j.contains("jpeg_quality"))
+            params.emplace_back("jpeg_quality", j["jpeg_quality"].get<int>());
         if (j.contains("target_fps"))
             params.emplace_back("target_fps", j["target_fps"].get<int>());
         if (j.contains("encoder"))
@@ -212,6 +279,8 @@ void RemoteLinkNode::on_param_update_from_udp(
             params.emplace_back("fec_enabled", j["fec_enabled"].get<bool>());
         if (j.contains("fec_redundancy"))
             params.emplace_back("fec_redundancy", j["fec_redundancy"].get<double>());
+        if (j.contains("udp_mtu"))
+            params.emplace_back("udp_mtu", j["udp_mtu"].get<int>());
         if (j.contains("brightness"))
             params.emplace_back("brightness", j["brightness"].get<int>());
         if (j.contains("contrast"))
@@ -221,7 +290,12 @@ void RemoteLinkNode::on_param_update_from_udp(
         if (j.contains("denoise"))
             params.emplace_back("denoise", j["denoise"].get<int>());
 
-        if (!params.empty()) set_parameters(params);
+        if (!params.empty()) {
+            const auto result = set_parameters_atomically(params);
+            if (!result.successful) {
+                RCLCPP_WARN(get_logger(), "PARAM_UPDATE rejected: %s", result.reason.c_str());
+            }
+        }
     } catch (const std::exception& e) {
         RCLCPP_WARN(get_logger(), "PARAM_UPDATE parse error: %s", e.what());
     }
@@ -230,25 +304,72 @@ void RemoteLinkNode::on_param_update_from_udp(
 rcl_interfaces::msg::SetParametersResult
 RemoteLinkNode::on_parameter_change(const std::vector<rclcpp::Parameter>& params)
 {
+    rcl_interfaces::msg::SetParametersResult result;
+    result.successful = false;
+    const auto reject = [&result](const char* reason) {
+        result.reason = reason;
+        return result;
+    };
+    bool video_changed = false;
     for (const auto& p : params) {
-        if (p.get_name() == "debug.verbose") {
-            debug_verbose_ = p.as_bool();
-        } else if (p.get_name() == "client_timeout_s") {
-            client_timeout_s_ = p.as_double();
+        const auto& name = p.get_name();
+        if (name == "target_fps") {
+            if (p.as_int() < 24 || p.as_int() > 240) return reject("target_fps out of range");
+            video_changed = true;
+        } else if (name == "target_bitrate_kbps") {
+            if (p.as_int() < 100 || p.as_int() > 80000) {
+                return reject("target_bitrate_kbps out of range");
+            }
+            video_changed = true;
+        } else if (name == "jpeg_quality") {
+            if (p.as_int() < 1 || p.as_int() > 100) return reject("jpeg_quality out of range");
+            video_changed = true;
+        } else if (name == "encoder") {
+            if (p.as_string() != "jpeg" && p.as_string() != "h264") {
+                return reject("unsupported encoder");
+            }
+            video_changed = true;
+        } else if (name == "fec_redundancy") {
+            if (p.as_double() < 0.0 || p.as_double() > 1.0) {
+                return reject("fec_redundancy out of range");
+            }
+            video_changed = true;
+        } else if (name == "udp_mtu") {
+            if (p.as_int() < 576 || p.as_int() > 1500) return reject("udp_mtu out of range");
+            video_changed = true;
+        } else if (name == "brightness" || name == "contrast") {
+            if (p.as_int() < -100 || p.as_int() > 100) return reject("image value out of range");
+            video_changed = true;
+        } else if (name == "sharpness" || name == "denoise") {
+            if (p.as_int() < 0 || p.as_int() > 100) return reject("image value out of range");
+            video_changed = true;
+        } else if (name == "fec_enabled") {
+            video_changed = true;
+        } else if (name == "client_timeout_s") {
+            if (p.as_double() <= 0.0) return reject("client_timeout_s must be positive");
         }
     }
-    apply_video_config();
-    rcl_interfaces::msg::SetParametersResult result;
+    for (const auto& p : params) {
+        if (p.get_name() == "debug.verbose") {
+            debug_verbose_.store(p.as_bool());
+            if (control_rx_) control_rx_->set_verbose(debug_verbose_.load());
+        } else if (p.get_name() == "client_timeout_s") {
+            client_timeout_s_.store(p.as_double());
+        }
+    }
+    if (video_changed) apply_video_config(params);
     result.successful = true;
+    result.reason.clear();
     return result;
 }
 
-void RemoteLinkNode::apply_video_config() {
+void RemoteLinkNode::apply_video_config(const std::vector<rclcpp::Parameter>& changes) {
     if (!video_tx_) return;
     VideoSender::Config cfg;
     cfg.port          = static_cast<uint16_t>(get_parameter("video_port").as_int());
     cfg.fec_enabled   = get_parameter("fec_enabled").as_bool();
     cfg.fec_redundancy = static_cast<float>(get_parameter("fec_redundancy").as_double());
+    cfg.udp_mtu       = get_parameter("udp_mtu").as_int();
     cfg.encoder_cfg.quality        = get_parameter("jpeg_quality").as_int();
     cfg.encoder_cfg.target_bitrate = get_parameter("target_bitrate_kbps").as_int();
     cfg.encoder_cfg.fps            = get_parameter("target_fps").as_int();
@@ -257,12 +378,29 @@ void RemoteLinkNode::apply_video_config() {
     cfg.encoder_cfg.contrast       = get_parameter("contrast").as_int();
     cfg.encoder_cfg.sharpness      = get_parameter("sharpness").as_int();
     cfg.encoder_cfg.denoise        = get_parameter("denoise").as_int();
+    for (const auto& parameter : changes) {
+        const auto& name = parameter.get_name();
+        if (name == "target_fps") cfg.encoder_cfg.fps = parameter.as_int();
+        else if (name == "target_bitrate_kbps") {
+            cfg.encoder_cfg.target_bitrate = parameter.as_int();
+        } else if (name == "jpeg_quality") cfg.encoder_cfg.quality = parameter.as_int();
+        else if (name == "encoder") cfg.encoder_cfg.use_h264 = parameter.as_string() == "h264";
+        else if (name == "fec_enabled") cfg.fec_enabled = parameter.as_bool();
+        else if (name == "fec_redundancy") {
+            cfg.fec_redundancy = static_cast<float>(parameter.as_double());
+        } else if (name == "udp_mtu") {
+            cfg.udp_mtu = parameter.as_int();
+        } else if (name == "brightness") cfg.encoder_cfg.brightness = parameter.as_int();
+        else if (name == "contrast") cfg.encoder_cfg.contrast = parameter.as_int();
+        else if (name == "sharpness") cfg.encoder_cfg.sharpness = parameter.as_int();
+        else if (name == "denoise") cfg.encoder_cfg.denoise = parameter.as_int();
+    }
     video_tx_->update_config(cfg);
 }
 
 void RemoteLinkNode::watchdog_tick() {
     double last = control_rx_ ? control_rx_->last_client_time() : 0.0;
-    if (last > 0.0 && (now_sec() - last) > client_timeout_s_) {
+    if (last > 0.0 && (now_sec() - last) > client_timeout_s_.load()) {
         RCLCPP_WARN(get_logger(), "Client timeout, stopping video stream");
         video_tx_->clear_client_addr();
     }
@@ -281,7 +419,7 @@ void RemoteLinkNode::diagnostic_tick() {
     j["has_client"]           = video_tx_->has_client();
 
     std::string payload = j.dump();
-    if (debug_verbose_) {
+    if (debug_verbose_.load()) {
         RCLCPP_INFO(get_logger(), "stats: %s", payload.c_str());
     }
 
@@ -290,12 +428,19 @@ void RemoteLinkNode::diagnostic_tick() {
     stats_pub_->publish(std::move(msg));
 }
 
-std::string RemoteLinkNode::params_to_json() const {    nlohmann::json j;
+std::string RemoteLinkNode::params_to_json() const {
+    nlohmann::json j;
     j["bitrate"]       = get_parameter("target_bitrate_kbps").as_int();
     j["target_fps"]    = get_parameter("target_fps").as_int();
+    j["jpeg_quality"]  = get_parameter("jpeg_quality").as_int();
     j["encoder"]       = get_parameter("encoder").as_string();
     j["fec_enabled"]   = get_parameter("fec_enabled").as_bool();
     j["fec_redundancy"]= get_parameter("fec_redundancy").as_double();
+    j["udp_mtu"]       = get_parameter("udp_mtu").as_int();
+    j["brightness"]    = get_parameter("brightness").as_int();
+    j["contrast"]      = get_parameter("contrast").as_int();
+    j["sharpness"]     = get_parameter("sharpness").as_int();
+    j["denoise"]       = get_parameter("denoise").as_int();
     return j.dump();
 }
 

@@ -9,6 +9,8 @@ utils/__pycache__
 *.egg-info/
 dist/
 build/
+/out/
+/cmake-build-*/
 demo/
 recordings/
 screenshots/

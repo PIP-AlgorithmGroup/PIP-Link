@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cmath>
 #include <algorithm>
+#include <limits>
 
 namespace remote_link {
 
@@ -202,39 +203,38 @@ void VideoSender::send_frame(const cv::Mat& frame) {
     std::vector<uint8_t> encoded;
     bool fec_enabled;
     float fec_redundancy;
+    size_t udp_mtu;
     {
         std::lock_guard<std::mutex> lk(cfg_mutex_);
         encoded = encoder_->encode(frame, (frame_id_ % 30 == 0), codec_flag);
         fec_enabled   = cfg_.fec_enabled;
         fec_redundancy = cfg_.fec_redundancy;
+        udp_mtu = static_cast<size_t>(std::clamp(cfg_.udp_mtu, 576, 1500));
     }
 
     float encode_ms = encoder_->last_encode_ms();
     frame_id_++;
 
-    const size_t CHUNK = ProtocolCodec::CHUNK_SIZE;
+    const size_t CHUNK = udp_mtu - ProtocolCodec::VIDEO_HDR_SIZE - sizeof(uint32_t);
     const size_t total_data = encoded.size();
-    const uint16_t n_data = static_cast<uint16_t>(
-        (total_data + CHUNK - 1) / CHUNK);
+    if (total_data == 0) return;
+    const size_t n_data_size = (total_data + CHUNK - 1) / CHUNK;
+    if (n_data_size > std::numeric_limits<uint16_t>::max() / 2) return;
+    const uint16_t n_data = static_cast<uint16_t>(n_data_size);
 
-    // FEC K=1 XOR: 对所有 data chunk 零填充到 CHUNK 后逐字节 XOR
     uint16_t k_parity = 0;
-    std::vector<uint8_t> parity_chunk;
-    if (fec_enabled && n_data > 0) {
+    if (fec_enabled && fec_redundancy > 0.0f) {
         k_parity = static_cast<uint16_t>(
             std::max(1, static_cast<int>(std::ceil(n_data * fec_redundancy))));
-        k_parity = 1;  // Phase 2: 只实现 K=1
-        // parity 大小 = 最后一个 data chunk 的实际大小（不强制零填充到 CHUNK）
-        size_t last_chunk_len = total_data - static_cast<size_t>(n_data - 1) * CHUNK;
-        parity_chunk.assign(last_chunk_len, 0);
-        for (uint16_t i = 0; i < n_data; ++i) {
-            size_t offset = static_cast<size_t>(i) * CHUNK;
-            size_t len    = std::min(CHUNK, total_data - offset);
-            size_t parity_len = std::min(len, last_chunk_len);
-            for (size_t b = 0; b < parity_len; ++b) {
-                parity_chunk[b] ^= encoded[offset + b];
-            }
-        }
+        k_parity = std::min(k_parity, n_data);
+    }
+    std::vector<std::vector<uint8_t>> parity_chunks(
+        k_parity, std::vector<uint8_t>(CHUNK, 0));
+    for (uint16_t i = 0; i < n_data && k_parity > 0; ++i) {
+        const size_t offset = static_cast<size_t>(i) * CHUNK;
+        const size_t len = std::min(CHUNK, total_data - offset);
+        auto& parity = parity_chunks[i % k_parity];
+        for (size_t b = 0; b < len; ++b) parity[b] ^= encoded[offset + b];
     }
 
     const uint16_t total_chunks = n_data + k_parity;
@@ -277,26 +277,36 @@ void VideoSender::send_frame(const cv::Mat& frame) {
         this_frame_cache[i] = std::move(pkt);
     }
 
-    // 发送 parity chunk（K=1 XOR）
-    if (k_parity > 0) {
-        uint16_t parity_idx = n_data;
+    for (uint16_t parity_group = 0; parity_group < k_parity; ++parity_group) {
+        const uint16_t parity_idx = static_cast<uint16_t>(n_data + parity_group);
+        std::vector<uint8_t> parity_payload(sizeof(uint32_t) + CHUNK);
+        parity_payload[0] = static_cast<uint8_t>(total_data);
+        parity_payload[1] = static_cast<uint8_t>(total_data >> 8U);
+        parity_payload[2] = static_cast<uint8_t>(total_data >> 16U);
+        parity_payload[3] = static_cast<uint8_t>(total_data >> 24U);
+        std::memcpy(parity_payload.data() + sizeof(uint32_t),
+                    parity_chunks[parity_group].data(), CHUNK);
         uint8_t hdr[ProtocolCodec::VIDEO_HDR_SIZE];
         ProtocolCodec::build_video_chunk_header(
             hdr, frame_id_, total_chunks, parity_idx,
-            static_cast<uint32_t>(parity_chunk.size()),
+            static_cast<uint32_t>(parity_payload.size()),
             1,      // fec_flag: parity
             n_data, // orig_chunks
             codec_flag, encode_ms);
 
-        std::vector<uint8_t> pkt(ProtocolCodec::VIDEO_HDR_SIZE + parity_chunk.size());
+        std::vector<uint8_t> pkt(ProtocolCodec::VIDEO_HDR_SIZE + parity_payload.size());
         std::memcpy(pkt.data(), hdr, ProtocolCodec::VIDEO_HDR_SIZE);
         std::memcpy(pkt.data() + ProtocolCodec::VIDEO_HDR_SIZE,
-                    parity_chunk.data(), parity_chunk.size());
+                    parity_payload.data(), parity_payload.size());
 
         sendto(video_fd_, pkt.data(), pkt.size(), 0,
                reinterpret_cast<const sockaddr*>(&dest), sizeof(dest));
 
         bytes_window_ += pkt.size();
+        {
+            std::lock_guard<std::mutex> lk(stats_mutex_);
+            stats_.bytes_sent += pkt.size();
+        }
         this_frame_cache[parity_idx] = std::move(pkt);
     }
 

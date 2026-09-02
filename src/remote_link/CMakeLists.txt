@@ -10,9 +10,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rclcpp_components REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(pip_vision_interfaces REQUIRED)
+find_package(pip_msgs REQUIRED)
 find_package(OpenCV 4 REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(PkgConfig REQUIRED)
@@ -68,9 +69,10 @@ endif()
 ament_target_dependencies(${PROJECT_NAME}
   rclcpp
   rclcpp_components
+  rcl_interfaces
   sensor_msgs
   std_msgs
-  pip_vision_interfaces
+  pip_msgs
 )
 
 rclcpp_components_register_node(${PROJECT_NAME}

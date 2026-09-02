@@ -14,19 +14,21 @@ class ControlReceiver {
 public:
     using CommandCallback = std::function<void(
         const std::string& client_ip,
-        uint32_t seq, double t1,
+        uint32_t seq, double t1, bool is_ready,
         const uint8_t kb[10],
         int16_t mouse_dx, int16_t mouse_dy,
         uint8_t mouse_buttons, int8_t scroll_delta)>;
 
     using ParamUpdateCallback = std::function<void(
         uint32_t seq, const std::string& json)>;
+    using ParamQueryCallback = std::function<std::string()>;
 
     explicit ControlReceiver(uint16_t port);
     ~ControlReceiver();
 
     void set_command_callback(CommandCallback cb);
     void set_param_update_callback(ParamUpdateCallback cb);
+    void set_param_query_callback(ParamQueryCallback cb);
     void set_verbose(bool v) { verbose_.store(v); }
 
     void start();
@@ -54,6 +56,7 @@ private:
 
     CommandCallback     cmd_cb_;
     ParamUpdateCallback param_cb_;
+    ParamQueryCallback  param_query_cb_;
 
     std::atomic<double> last_client_time_{0.0};
     std::string         client_ip_;

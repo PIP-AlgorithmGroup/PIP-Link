@@ -8,6 +8,7 @@ extern "C" {
 }
 
 #include <chrono>
+#include <algorithm>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/photo.hpp>
@@ -51,6 +52,8 @@ void FrameEncoder::open_h264() {
     av_opt_set(codec_ctx_->priv_data, "preset",  "ultrafast",   0);
     av_opt_set(codec_ctx_->priv_data, "tune",    "zerolatency", 0);
     av_opt_set(codec_ctx_->priv_data, "profile", "baseline",    0);
+    av_opt_set(codec_ctx_->priv_data, "x264-params",
+               "repeat-headers=1:aud=1", 0);
 
     fprintf(stderr, "[FrameEncoder] open_h264: %dx%d fps=%d bitrate=%dkbps\n",
             cfg_.width, cfg_.height, cfg_.fps, cfg_.target_bitrate);
@@ -132,6 +135,7 @@ void FrameEncoder::update_config(const EncoderConfig& cfg) {
                                           cfg.fps    != cfg_.fps    ||
                                           cfg.target_bitrate != cfg_.target_bitrate));
     cfg_ = cfg;
+    quality_ = std::clamp(cfg.quality, QUALITY_MIN, QUALITY_MAX);
     target_frame_bytes_ = static_cast<float>(cfg.target_bitrate * 1000) / 8.0f
                         / static_cast<float>(cfg.fps);
     if (need_reinit) {

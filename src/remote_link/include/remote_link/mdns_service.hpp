@@ -4,6 +4,7 @@
 #include <thread>
 #include <atomic>
 #include <chrono>
+#include <mutex>
 
 #include <avahi-client/client.h>
 #include <avahi-client/publish.h>
@@ -37,6 +38,7 @@ private:
     AvahiClient*       avahi_client_{nullptr};
     AvahiEntryGroup*   avahi_group_{nullptr};
     AvahiSimplePoll*   avahi_poll_{nullptr};
+    std::mutex         avahi_poll_mutex_;
     std::thread        avahi_thread_;
     std::atomic<bool>  running_{false};
     std::atomic<bool>  registered_{false};

@@ -48,14 +48,14 @@ bool ProtocolCodec::verify_crc(const uint8_t* data, size_t len) {
 
 int ProtocolCodec::parse_type(const uint8_t* data, size_t len) {
     if (len < HEADER_SIZE + 4) return -1;
-    if (read_u16(data) != MAGIC) return -1;
+    if (read_u16(data) != MAGIC || data[2] != VERSION) return -1;
     if (!verify_crc(data, len)) return -1;
     return data[3];  // MsgType byte
 }
 
 bool ProtocolCodec::parse_control_command(
     const uint8_t* data, size_t len,
-    uint32_t& seq, double& t1,
+    uint32_t& seq, double& t1, bool& is_ready,
     uint8_t keyboard_state[10],
     int16_t& mouse_dx, int16_t& mouse_dy,
     uint8_t& mouse_buttons, int8_t& scroll_delta)
@@ -67,6 +67,7 @@ bool ProtocolCodec::parse_control_command(
 
     seq = read_u32(data + 5);
     t1  = read_f64(data + 9);
+    is_ready = (data[4] & CONTROL_READY_FLAG) != 0;
     std::memcpy(keyboard_state, data + 17, 10);
     mouse_dx      = read_i16(data + 27);
     mouse_dy      = read_i16(data + 29);
@@ -90,6 +91,17 @@ bool ProtocolCodec::parse_param_update(
     const size_t json_len   = len - 4 - json_start;
     if (json_len == 0) return false;
     json_payload.assign(reinterpret_cast<const char*>(data + json_start), json_len);
+    return true;
+}
+
+bool ProtocolCodec::parse_param_query(
+    const uint8_t* data, size_t len, uint32_t& seq)
+{
+    // PARAM_QUERY: Header(9) + t1(8) + CRC(4) = 21B
+    if (len != 21) return false;
+    if (read_u16(data) != MAGIC || data[3] != 0x03) return false;
+    if (!verify_crc(data, len)) return false;
+    seq = read_u32(data + 5);
     return true;
 }
 

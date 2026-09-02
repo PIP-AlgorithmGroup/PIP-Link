@@ -1,12 +1,13 @@
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <string>
 
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/image.hpp>
 #include <std_msgs/msg/string.hpp>
-#include <pip_vision_interfaces/msg/remote_command.hpp>
+#include <pip_msgs/msg/remote_command.hpp>
 #include <rcl_interfaces/msg/set_parameters_result.hpp>
 
 namespace remote_link {
@@ -24,7 +25,7 @@ private:
     void on_frame(sensor_msgs::msg::Image::ConstSharedPtr msg);
 
     void on_command(const std::string& client_ip,
-                    uint32_t seq, double t1,
+                    uint32_t seq, double t1, bool is_ready,
                     const uint8_t kb[10],
                     int16_t mouse_dx, int16_t mouse_dy,
                     uint8_t mouse_buttons, int8_t scroll_delta);
@@ -37,10 +38,10 @@ private:
     void watchdog_tick();
     void diagnostic_tick();
     std::string params_to_json() const;
-    void apply_video_config();
+    void apply_video_config(const std::vector<rclcpp::Parameter>& changes);
 
     rclcpp::Subscription<sensor_msgs::msg::Image>::SharedPtr frame_sub_;
-    rclcpp::Publisher<pip_vision_interfaces::msg::RemoteCommand>::SharedPtr cmd_pub_;
+    rclcpp::Publisher<pip_msgs::msg::RemoteCommand>::SharedPtr cmd_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr stats_pub_;
     rclcpp::TimerBase::SharedPtr watchdog_timer_;
     rclcpp::TimerBase::SharedPtr diagnostic_timer_;
@@ -51,9 +52,9 @@ private:
     std::unique_ptr<MdnsService>     mdns_;
 
     double prev_t1_{-1.0};
-    double client_timeout_s_{5.0};
+    std::atomic<double> client_timeout_s_{5.0};
     bool   frame_received_{false};
-    bool   debug_verbose_{false};
+    std::atomic<bool> debug_verbose_{false};
 };
 
 }  // namespace remote_link

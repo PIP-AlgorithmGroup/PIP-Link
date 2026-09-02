@@ -11,9 +11,10 @@
 
   <depend>rclcpp</depend>
   <depend>rclcpp_components</depend>
+  <depend>rcl_interfaces</depend>
   <depend>sensor_msgs</depend>
   <depend>std_msgs</depend>
-  <depend>pip_vision_interfaces</depend>
+  <depend>pip_msgs</depend>
   <depend>libopencv-dev</depend>
 
   <!-- System libs (non-ament): avahi-client, zlib, libavcodec, nlohmann-json3-dev -->

@@ -70,7 +70,8 @@ void MdnsService::entry_group_callback(AvahiEntryGroup* /*g*/, AvahiEntryGroupSt
         if (self->avahi_client_)
             self->create_services(self->avahi_client_);
     } else if (state == AVAHI_ENTRY_GROUP_FAILURE) {
-        avahi_simple_poll_quit(self->avahi_poll_);
+        std::lock_guard lock(self->avahi_poll_mutex_);
+        if (self->avahi_poll_) avahi_simple_poll_quit(self->avahi_poll_);
     }
 }
 
@@ -79,7 +80,8 @@ void MdnsService::client_callback(AvahiClient* c, AvahiClientState state, void* 
     if (state == AVAHI_CLIENT_S_RUNNING) {
         self->create_services(c);
     } else if (state == AVAHI_CLIENT_FAILURE) {
-        avahi_simple_poll_quit(self->avahi_poll_);
+        std::lock_guard lock(self->avahi_poll_mutex_);
+        if (self->avahi_poll_) avahi_simple_poll_quit(self->avahi_poll_);
     } else if (state == AVAHI_CLIENT_S_COLLISION ||
                state == AVAHI_CLIENT_S_REGISTERING) {
         if (self->avahi_group_)
@@ -89,12 +91,16 @@ void MdnsService::client_callback(AvahiClient* c, AvahiClientState state, void* 
 }
 
 void MdnsService::avahi_thread_loop() {
-    avahi_poll_ = avahi_simple_poll_new();
-    if (!avahi_poll_) return;
+    AvahiSimplePoll* poll = avahi_simple_poll_new();
+    {
+        std::lock_guard lock(avahi_poll_mutex_);
+        avahi_poll_ = poll;
+    }
+    if (!poll) return;
 
     int error;
     avahi_client_ = avahi_client_new(
-        avahi_simple_poll_get(avahi_poll_),
+        avahi_simple_poll_get(poll),
         AVAHI_CLIENT_NO_FAIL,
         client_callback,
         this,
@@ -103,17 +109,23 @@ void MdnsService::avahi_thread_loop() {
     if (!avahi_client_) {
         fprintf(stderr, "[MdnsService] avahi_client_new failed: %s\n",
                 avahi_strerror(error));
-        avahi_simple_poll_free(avahi_poll_);
-        avahi_poll_ = nullptr;
+        {
+            std::lock_guard lock(avahi_poll_mutex_);
+            avahi_poll_ = nullptr;
+        }
+        avahi_simple_poll_free(poll);
         return;
     }
 
-    avahi_simple_poll_loop(avahi_poll_);
+    if (running_.load()) avahi_simple_poll_loop(poll);
 
     if (avahi_client_) avahi_client_free(avahi_client_);
     avahi_client_ = nullptr;
-    avahi_simple_poll_free(avahi_poll_);
-    avahi_poll_ = nullptr;
+    {
+        std::lock_guard lock(avahi_poll_mutex_);
+        avahi_poll_ = nullptr;
+    }
+    avahi_simple_poll_free(poll);
 }
 
 bool MdnsService::start(std::chrono::seconds timeout) {
@@ -130,7 +142,10 @@ bool MdnsService::start(std::chrono::seconds timeout) {
 
 void MdnsService::stop() {
     if (!running_.exchange(false)) return;
-    if (avahi_poll_) avahi_simple_poll_quit(avahi_poll_);
+    {
+        std::lock_guard lock(avahi_poll_mutex_);
+        if (avahi_poll_) avahi_simple_poll_quit(avahi_poll_);
+    }
     if (avahi_thread_.joinable()) avahi_thread_.join();
 }
 
