@@ -45,7 +45,10 @@ string(FIND "${ui_header}" "std::array<float, 7> mouse_input_activity_" wheel_ac
 string(FIND "${ui_source}" "\"↑\"" font_wheel_up)
 string(FIND "${ui_source}" "\"↓\"" font_wheel_down)
 string(FIND "${ui_source}" "void draw_mouse_diagram(" mouse_diagram)
+string(FIND "${ui_source}" "float movement_x, float movement_y" embedded_movement)
+string(FIND "${ui_source}" "\"MOTION\"" external_motion_widget)
 if(wheel_activity EQUAL -1 OR NOT font_wheel_up EQUAL -1 OR
-   NOT font_wheel_down EQUAL -1 OR mouse_diagram EQUAL -1)
-    message(FATAL_ERROR "Mouse inputs must use a font-independent mouse diagram")
+   NOT font_wheel_down EQUAL -1 OR mouse_diagram EQUAL -1 OR
+   embedded_movement EQUAL -1 OR NOT external_motion_widget EQUAL -1)
+    message(FATAL_ERROR "Mouse movement must be drawn inside the mouse diagram")
 endif()

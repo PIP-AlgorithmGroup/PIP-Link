@@ -94,6 +94,7 @@ void draw_key_tag(ImDrawList* draw, ImVec2& cursor, const ImVec2 bounds,
 }
 
 void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opacity,
+                        float movement_x, float movement_y,
                         const std::array<float, 7>& activity) {
     const auto part_color = [&](float intensity) {
         return color_with_alpha(
@@ -102,8 +103,8 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
                         accent, intensity),
             opacity);
     };
-    const ImVec2 mouse_body_min{center.x - 36.0F * unit, center.y - 49.0F * unit};
-    const ImVec2 mouse_body_max{center.x + 36.0F * unit, center.y + 49.0F * unit};
+    const ImVec2 mouse_body_min{center.x - 36.0F * unit, center.y - 60.0F * unit};
+    const ImVec2 mouse_body_max{center.x + 36.0F * unit, center.y + 60.0F * unit};
     const float button_bottom = mouse_body_min.y + 39.0F * unit;
 
     draw->AddRectFilled({mouse_body_min.x, mouse_body_min.y + 3.0F * unit},
@@ -173,6 +174,32 @@ void draw_mouse_diagram(ImDrawList* draw, ImVec2 center, float unit, float opaci
                       {side_button_min.x + 4.0F * unit, top + 1.0F * unit},
                       IM_COL32(224, 237, 244, static_cast<int>(215.0F * opacity)),
                       label);
+    }
+
+    const ImVec2 movement_origin{center.x, mouse_body_min.y + 82.0F * unit};
+    const ImVec2 movement_delta{movement_x * 0.65F * unit,
+                                movement_y * 0.65F * unit};
+    const float movement_length = std::hypot(movement_delta.x, movement_delta.y);
+    if (movement_length > 0.5F * unit) {
+        const ImVec2 direction{movement_delta.x / movement_length,
+                               movement_delta.y / movement_length};
+        const ImVec2 perpendicular{-direction.y, direction.x};
+        const ImVec2 movement_tip{movement_origin.x + movement_delta.x,
+                                  movement_origin.y + movement_delta.y};
+        const float head_length = 6.0F * unit;
+        const float head_width = 3.5F * unit;
+        const ImVec2 head_base{movement_tip.x - direction.x * head_length,
+                               movement_tip.y - direction.y * head_length};
+        const ImU32 movement_color = color_with_alpha(
+            accent, opacity * std::clamp(movement_length / (16.0F * unit), 0.35F, 1.0F));
+        draw->AddLine(movement_origin, movement_tip, movement_color, 2.0F * unit);
+        draw->AddTriangleFilled(
+            movement_tip,
+            {head_base.x + perpendicular.x * head_width,
+             head_base.y + perpendicular.y * head_width},
+            {head_base.x - perpendicular.x * head_width,
+             head_base.y - perpendicular.y * head_width},
+            movement_color);
     }
 
     draw->AddRect(mouse_body_min, mouse_body_max,
@@ -625,10 +652,6 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         }
         ImGui::PopStyleColor(4);
 
-        draw->AddText({origin.x + 30.0F * scale,
-                       bottom_right.y - 34.0F * scale},
-                      IM_COL32(70, 88, 101, 235),
-                      "C++20  ·  SDL3  ·  Direct3D 11");
     } else {
         draw->AddRectFilled(origin, {origin.x + size.x, origin.y + size.y},
                             IM_COL32(5, 7, 10, 255));
@@ -665,7 +688,7 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         mouse_indicator_y_ += (target_y - mouse_indicator_y_) * mouse_t;
 
         const float panel_w = 390.0F * unit;
-        const float panel_h = 202.0F * unit;
+        const float panel_h = 222.0F * unit;
         const float slide = (1.0F - input_hud_visibility_) * 14.0F * unit;
         const ImVec2 p0{origin.x + margin, origin.y + size.y - margin - panel_h + slide};
         const ImVec2 p1{p0.x + panel_w, p0.y + panel_h};
@@ -674,41 +697,17 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         draw->AddRect(p0, p1, IM_COL32(190, 220, 234, static_cast<int>(75.0F * opacity)),
                       10.0F * unit);
 
-        const ImVec2 mouse_center{p0.x + 58.0F * unit, p0.y + 52.0F * unit};
-        draw->AddCircleFilled(mouse_center, 34.0F * unit,
-                              IM_COL32(4, 8, 13, static_cast<int>(210.0F * opacity)));
-        draw->AddCircle(mouse_center, 34.0F * unit,
-                        IM_COL32(154, 183, 198, static_cast<int>(100.0F * opacity)), 0,
-                        1.0F * unit);
-        draw->AddLine({mouse_center.x - 25.0F * unit, mouse_center.y},
-                      {mouse_center.x + 25.0F * unit, mouse_center.y},
-                      IM_COL32(117, 150, 166, static_cast<int>(70.0F * opacity)));
-        draw->AddLine({mouse_center.x, mouse_center.y - 25.0F * unit},
-                      {mouse_center.x, mouse_center.y + 25.0F * unit},
-                      IM_COL32(117, 150, 166, static_cast<int>(70.0F * opacity)));
-        const ImVec2 dot{mouse_center.x + mouse_indicator_x_ * unit,
-                         mouse_center.y + mouse_indicator_y_ * unit};
-        draw->AddLine(mouse_center, dot, color_with_alpha(accent, opacity * 0.55F), 2.0F * unit);
-        draw->AddCircleFilled(dot, 5.5F * unit, color_with_alpha(accent, opacity));
+        draw_mouse_diagram(draw, {p0.x + 195.0F * unit, p0.y + 66.0F * unit},
+                           unit, opacity, mouse_indicator_x_, mouse_indicator_y_,
+                           mouse_input_activity_);
 
-        const ImVec2 motion_label_size = ImGui::GetFont()->CalcTextSizeA(
-            hud_font_size, 10000.0F, 0.0F, "MOTION");
-        draw->AddText(ImGui::GetFont(), hud_font_size,
-                      {mouse_center.x - motion_label_size.x * 0.5F,
-                       p0.y + 91.0F * unit},
-                      IM_COL32(180, 197, 207, static_cast<int>(230.0F * opacity)),
-                      "MOTION");
-
-        draw_mouse_diagram(draw, {p0.x + 247.0F * unit, p0.y + 60.0F * unit},
-                           unit, opacity, mouse_input_activity_);
-
-        draw->AddLine({p0.x + 14.0F * unit, p0.y + 116.0F * unit},
-                      {p1.x - 14.0F * unit, p0.y + 116.0F * unit},
+        draw->AddLine({p0.x + 14.0F * unit, p0.y + 136.0F * unit},
+                      {p1.x - 14.0F * unit, p0.y + 136.0F * unit},
                       IM_COL32(160, 185, 198, static_cast<int>(55.0F * opacity)));
-        ImVec2 tag_cursor{p0.x + 14.0F * unit, p0.y + 132.0F * unit};
+        ImVec2 tag_cursor{p0.x + 14.0F * unit, p0.y + 152.0F * unit};
         const ImVec2 tag_bounds{p1.x - 14.0F * unit, p0.x + 14.0F * unit};
         int pressed_count = 0;
-        draw->PushClipRect({p0.x + 12.0F * unit, p0.y + 126.0F * unit},
+        draw->PushClipRect({p0.x + 12.0F * unit, p0.y + 146.0F * unit},
                            {p1.x - 12.0F * unit, p1.y - 10.0F * unit}, true);
         const auto key_visuals = protocol_key_visuals();
         for (std::size_t index = 0; index < key_visuals.size(); ++index) {
