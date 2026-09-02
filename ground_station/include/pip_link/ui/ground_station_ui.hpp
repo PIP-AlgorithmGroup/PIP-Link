@@ -43,6 +43,7 @@ private:
     void draw_settings(float delta_seconds, float scale);
     void draw_settings_tabs(float delta_seconds, float scale);
     void draw_console(float delta_seconds, float scale);
+    void draw_recording_overlay(float delta_seconds, float scale);
     static int console_input_callback(ImGuiInputTextCallbackData* data);
     void draw_connection_page(float scale);
     void draw_video_page(float scale);
@@ -136,6 +137,7 @@ private:
     float status_hud_visibility_{1.0F};
     float ready_hud_visibility_{1.0F};
     float ready_transition_{0.0F};
+    float recording_overlay_visibility_{0.0F};
     float mouse_indicator_x_{0.0F};
     float mouse_indicator_y_{0.0F};
     float console_height_{0.0F};

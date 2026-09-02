@@ -555,8 +555,55 @@ void GroundStationUi::draw(float delta_seconds, float display_scale) {
     if (settings_open_) draw_settings(delta_seconds, display_scale);
     else draw_fpv(delta_seconds, display_scale);
     draw_console(delta_seconds, display_scale);
+    draw_recording_overlay(delta_seconds, display_scale);
 
     if (video_settings_debounce_.tick(delta_seconds)) submit_video_settings();
+}
+
+void GroundStationUi::draw_recording_overlay(float delta_seconds, float scale) {
+    const backend::RecordingState current = backend_.runtime_state().recording;
+    const bool active = current == backend::RecordingState::starting ||
+                        current == backend::RecordingState::recording;
+    recording_overlay_visibility_ = animate_toward(
+        recording_overlay_visibility_, active ? 1.0F : 0.0F, delta_seconds, 0.10F);
+    if (recording_overlay_visibility_ < 0.01F) return;
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const ImVec2 min = viewport->Pos;
+    const ImVec2 max{viewport->Pos.x + viewport->Size.x,
+                     viewport->Pos.y + viewport->Size.y};
+    const float edge = 30.0F * scale;
+    const float alpha = 0.30F * recording_overlay_visibility_;
+    const ImU32 blue = ImGui::GetColorU32({0.00F, 0.55F, 1.00F, alpha});
+    const ImU32 clear = ImGui::GetColorU32({0.00F, 0.55F, 1.00F, 0.0F});
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->AddRectFilledMultiColor(min, {max.x, min.y + edge},
+                                  blue, blue, clear, clear);
+    draw->AddRectFilledMultiColor({min.x, max.y - edge}, max,
+                                  clear, clear, blue, blue);
+    draw->AddRectFilledMultiColor(min, {min.x + edge, max.y},
+                                  blue, clear, clear, blue);
+    draw->AddRectFilledMultiColor({max.x - edge, min.y}, max,
+                                  clear, blue, blue, clear);
+
+    const ImGuiIO& io = ImGui::GetIO();
+    if (!wants_relative_mouse_mode() && ImGui::IsMousePosValid(&io.MousePos)) {
+        const float pulse = 0.92F + 0.08F *
+            std::sin(static_cast<float>(ImGui::GetTime()) * 4.0F);
+        for (int layer = 7; layer >= 1; --layer) {
+            const float ratio = static_cast<float>(layer) / 7.0F;
+            const float radius = (9.0F + ratio * 20.0F) * scale * pulse;
+            const float layer_alpha = 0.045F * (1.0F - ratio) *
+                                      recording_overlay_visibility_;
+            draw->AddCircleFilled(io.MousePos, radius,
+                                  ImGui::GetColorU32({0.00F, 0.63F, 1.00F,
+                                                      layer_alpha}), 32);
+        }
+        draw->AddCircle(io.MousePos, 11.0F * scale,
+                        ImGui::GetColorU32({0.25F, 0.82F, 1.00F,
+                                           0.82F * recording_overlay_visibility_}),
+                        32, 1.5F * scale);
+    }
 }
 
 void GroundStationUi::draw_fpv(float delta_seconds, float scale) {

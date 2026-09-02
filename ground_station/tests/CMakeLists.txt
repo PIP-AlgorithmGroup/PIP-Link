@@ -109,4 +109,12 @@ if(TARGET pip_link_desktop)
                 -DIMGUI_WIDGETS_FILE=${imgui_SOURCE_DIR}/imgui_widgets.cpp
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_imgui_cursor_blink.cmake
     )
+    add_test(
+        NAME pip_link_composited_capture_contract_test
+        COMMAND ${CMAKE_COMMAND}
+                -DDESKTOP_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/platform/desktop_window.cpp
+                -DRUNTIME_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/backend/ground_station_backend_runtime.cpp
+                -DUI_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/ui/ground_station_ui.cpp
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_composited_capture_contract.cmake
+    )
 endif()

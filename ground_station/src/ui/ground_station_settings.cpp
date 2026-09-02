@@ -785,10 +785,10 @@ void GroundStationUi::draw_control_page(float scale) {
 }
 
 void GroundStationUi::draw_recording_page(float scale) {
-    constexpr const char* formats[] = {"MP4 (H.264)", "MKV (H.264)", "原始码流"};
+    constexpr const char* formats[] = {"MP4 (H.264)", "MKV (H.264)", "MKV (FFV1 无损)"};
     const ColumnLayout layout = columns(scale);
     begin_card("RecordingFiles", {layout.width, 335.0F * scale});
-    section_title("文件与质量", "录制期间锁定参数，停止后可继续修改");
+    section_title("文件与质量", "录制完整窗口、HUD、设置页面与软件光标");
     ImGui::BeginDisabled(recording_state_ != backend::RecordingState::idle &&
                          recording_state_ != backend::RecordingState::failed);
     ImGui::TextColored(text_secondary, "保存目录");

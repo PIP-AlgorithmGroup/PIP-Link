@@ -17,7 +17,7 @@
 - 打开设置、打开控制台、窗口失焦或断开连接时会强制退出 READY，并停止转发控制输入。
 - `GroundStationBackendRuntime` 实现 mDNS 发现、UDP 会话、心跳/控制协议、自动重连、视频分片与 FEC、Media Foundation/WIC 解码、D3D11 纹理、录像、截图、设置、诊断和审计日志；`GroundStationBackendStub` 仅供 UI 单元测试使用。
 
-SDL3 与 Dear ImGui 由 CMake `FetchContent` 下载并固定版本，首次配置需要能够访问 GitHub。Direct3D 11、Media Foundation 与 WIC 使用 Windows SDK/MinGW 自带的系统库。H.264 优先使用 Windows 解码器，不兼容时自动切换到 FFmpeg；MP4/MKV 也由 FFmpeg 直接封装机载码流，因此请把 `ffmpeg.exe` 加入 `PATH`。JPEG 图传、PNG 截图和“原始码流”录制不依赖 FFmpeg。
+SDL3 与 Dear ImGui 由 CMake `FetchContent` 下载并固定版本，首次配置需要能够访问 GitHub。Direct3D 11、Media Foundation 与 WIC 使用 Windows SDK/MinGW 自带的系统库。H.264 优先使用 Windows 解码器，不兼容时自动切换到 FFmpeg。录像会在 D3D11 最终合成后采集完整窗口（含设置页面、HUD、控制台和软件光标），并由 FFmpeg 输出 H.264 MP4/MKV 或 FFV1 无损 MKV，因此请把 `ffmpeg.exe` 加入 `PATH`；PNG 截图不依赖 FFmpeg。
 
 ## 命令行构建
 
