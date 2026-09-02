@@ -11,6 +11,7 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cstring>
@@ -64,6 +65,13 @@ void release_texture(ID3D11Texture2D*& texture) {
     if (texture != nullptr) {
         texture->Release();
         texture = nullptr;
+    }
+}
+
+void release_query(ID3D11Query*& query) {
+    if (query != nullptr) {
+        query->Release();
+        query = nullptr;
     }
 }
 
@@ -134,14 +142,22 @@ void apply_theme(float scale) {
 }  // namespace
 
 struct DesktopWindow::Impl final {
+    struct CaptureSlot final {
+        ID3D11Texture2D* texture{};
+        ID3D11Query* ready{};
+        bool pending{};
+    };
+
     SDL_Window* window{nullptr};
     ID3D11Device* device{nullptr};
     ID3D11DeviceContext* context{nullptr};
     IDXGISwapChain* swap_chain{nullptr};
     ID3D11RenderTargetView* render_target{nullptr};
-    ID3D11Texture2D* capture_texture{nullptr};
+    std::array<CaptureSlot, 3> capture_slots{};
     UINT capture_width{};
     UINT capture_height{};
+    std::size_t capture_read{};
+    std::size_t capture_write{};
     float display_scale{1.0F};
     std::unique_ptr<backend::GroundStationBackendRuntime> backend;
     std::unique_ptr<ui::GroundStationUi> ui;
@@ -249,9 +265,7 @@ struct DesktopWindow::Impl final {
             return true;
         }
         release_render_target(render_target);
-        release_texture(capture_texture);
-        capture_width = 0;
-        capture_height = 0;
+        release_capture_resources();
         const HRESULT resize_result = swap_chain->ResizeBuffers(
             0, static_cast<UINT>(width), static_cast<UINT>(height),
             DXGI_FORMAT_UNKNOWN, 0);
@@ -266,43 +280,99 @@ struct DesktopWindow::Impl final {
         return true;
     }
 
+    void release_capture_resources() {
+        for (auto& slot : capture_slots) {
+            release_query(slot.ready);
+            release_texture(slot.texture);
+            slot.pending = false;
+        }
+        capture_width = 0;
+        capture_height = 0;
+        capture_read = 0;
+        capture_write = 0;
+    }
+
+    bool create_capture_resources(const D3D11_TEXTURE2D_DESC& source) {
+        release_capture_resources();
+        D3D11_TEXTURE2D_DESC staging = source;
+        staging.BindFlags = 0;
+        staging.MiscFlags = 0;
+        staging.Usage = D3D11_USAGE_STAGING;
+        staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+        D3D11_QUERY_DESC query_description{D3D11_QUERY_EVENT, 0};
+        for (auto& slot : capture_slots) {
+            if (FAILED(device->CreateTexture2D(&staging, nullptr, &slot.texture)) ||
+                FAILED(device->CreateQuery(&query_description, &slot.ready))) {
+                release_capture_resources();
+                return false;
+            }
+        }
+        capture_width = source.Width;
+        capture_height = source.Height;
+        return true;
+    }
+
+    void harvest_capture_frames(bool submit) {
+        for (std::size_t count = 0; count < capture_slots.size(); ++count) {
+            CaptureSlot& slot = capture_slots[capture_read];
+            if (!slot.pending) return;
+            const HRESULT ready = context->GetData(
+                slot.ready, nullptr, 0, D3D11_ASYNC_GETDATA_DONOTFLUSH);
+            if (ready == S_FALSE) return;
+            if (FAILED(ready)) {
+                slot.pending = false;
+                capture_read = (capture_read + 1) % capture_slots.size();
+                continue;
+            }
+            D3D11_MAPPED_SUBRESOURCE mapped{};
+            const HRESULT mapped_result = context->Map(
+                slot.texture, 0, D3D11_MAP_READ, D3D11_MAP_FLAG_DO_NOT_WAIT, &mapped);
+            if (mapped_result == DXGI_ERROR_WAS_STILL_DRAWING) return;
+            slot.pending = false;
+            capture_read = (capture_read + 1) % capture_slots.size();
+            if (FAILED(mapped_result)) continue;
+            if (submit) {
+                backend::CompositedFrame frame;
+                frame.width = static_cast<int>(capture_width);
+                frame.height = static_cast<int>(capture_height);
+                const std::size_t row_bytes = static_cast<std::size_t>(capture_width) * 4;
+                frame.rgba.resize(row_bytes * capture_height);
+                for (UINT row = 0; row < capture_height; ++row) {
+                    std::memcpy(frame.rgba.data() + row_bytes * row,
+                                static_cast<const std::uint8_t*>(mapped.pData) +
+                                    mapped.RowPitch * row,
+                                row_bytes);
+                }
+                backend->submit_composited_frame(std::move(frame));
+            }
+            context->Unmap(slot.texture, 0);
+        }
+    }
+
     void capture_composited_frame() {
-        if (!backend || !backend->needs_composited_frame()) return;
+        if (!backend) return;
+        const bool needed = backend->needs_composited_frame();
+        harvest_capture_frames(needed);
+        if (!needed) return;
         ID3D11Texture2D* back_buffer = nullptr;
         if (FAILED(swap_chain->GetBuffer(0, IID_PPV_ARGS(&back_buffer)))) return;
         D3D11_TEXTURE2D_DESC description{};
         back_buffer->GetDesc(&description);
-        if (capture_texture == nullptr || capture_width != description.Width ||
+        if (capture_width != description.Width ||
             capture_height != description.Height) {
-            release_texture(capture_texture);
-            D3D11_TEXTURE2D_DESC staging = description;
-            staging.BindFlags = 0;
-            staging.MiscFlags = 0;
-            staging.Usage = D3D11_USAGE_STAGING;
-            staging.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
-            if (FAILED(device->CreateTexture2D(&staging, nullptr, &capture_texture))) {
+            if (!create_capture_resources(description)) {
                 back_buffer->Release();
                 return;
             }
-            capture_width = description.Width;
-            capture_height = description.Height;
         }
-        context->CopyResource(capture_texture, back_buffer);
+        CaptureSlot& slot = capture_slots[capture_write];
+        if (!slot.pending) {
+            context->CopyResource(slot.texture, back_buffer);
+            context->End(slot.ready);
+            slot.pending = true;
+            capture_write = (capture_write + 1) % capture_slots.size();
+        }
         back_buffer->Release();
-        D3D11_MAPPED_SUBRESOURCE mapped{};
-        if (FAILED(context->Map(capture_texture, 0, D3D11_MAP_READ, 0, &mapped))) return;
-        backend::CompositedFrame frame;
-        frame.width = static_cast<int>(capture_width);
-        frame.height = static_cast<int>(capture_height);
-        const std::size_t row_bytes = static_cast<std::size_t>(capture_width) * 4;
-        frame.bgra.resize(row_bytes * capture_height);
-        for (UINT row = 0; row < capture_height; ++row) {
-            std::memcpy(frame.bgra.data() + row_bytes * row,
-                        static_cast<const std::uint8_t*>(mapped.pData) + mapped.RowPitch * row,
-                        row_bytes);
-        }
-        context->Unmap(capture_texture, 0);
-        backend->submit_composited_frame(std::move(frame));
     }
 
     void update_mouse_capture() {
@@ -332,7 +402,7 @@ struct DesktopWindow::Impl final {
             ImGui::DestroyContext();
         }
         release_render_target(render_target);
-        release_texture(capture_texture);
+        release_capture_resources();
         if (swap_chain != nullptr) {
             swap_chain->Release();
             swap_chain = nullptr;

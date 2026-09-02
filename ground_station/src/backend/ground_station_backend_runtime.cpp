@@ -85,6 +85,14 @@ std::wstring utf16(std::string_view value) {
     return result;
 }
 
+media::DecodedFrame rgba_to_bgra_for_png(const media::DecodedFrame& rgba) {
+    media::DecodedFrame bgra = rgba;
+    for (std::size_t offset = 0; offset + 3 < bgra.bgra.size(); offset += 4) {
+        std::swap(bgra.bgra[offset], bgra.bgra[offset + 2]);
+    }
+    return bgra;
+}
+
 std::string utf8(std::wstring_view value) {
     if (value.empty()) return {};
     const int size = WideCharToMultiByte(CP_UTF8, WC_ERR_INVALID_CHARS, value.data(),
@@ -2157,7 +2165,7 @@ bool GroundStationBackendRuntime::needs_composited_frame() const {
 }
 
 void GroundStationBackendRuntime::submit_composited_frame(CompositedFrame frame) {
-    media::DecodedFrame media_frame{frame.width, frame.height, std::move(frame.bgra)};
+    media::DecodedFrame media_frame{frame.width, frame.height, std::move(frame.rgba)};
     std::optional<std::filesystem::path> screenshot;
     {
         std::lock_guard lock(impl_->composite_mutex_);
@@ -2165,7 +2173,8 @@ void GroundStationBackendRuntime::submit_composited_frame(CompositedFrame frame)
     }
     if (screenshot) {
         std::string error;
-        if (media::save_png(*screenshot, media_frame, error)) {
+        const media::DecodedFrame screenshot_frame = rgba_to_bgra_for_png(media_frame);
+        if (media::save_png(*screenshot, screenshot_frame, error)) {
             impl_->append_audit("INFO", "截图已保存: " + screenshot->string());
         } else {
             impl_->append_audit("ERROR", error);
@@ -2207,7 +2216,7 @@ void GroundStationBackendRuntime::submit_composited_frame(CompositedFrame frame)
                                      impl_->recorder_.output_path().string());
         state = RecordingState::recording;
     }
-    if (state == RecordingState::recording) impl_->recorder_.write(media_frame);
+    if (state == RecordingState::recording) impl_->recorder_.write(std::move(media_frame));
 }
 
 MediaActionResult GroundStationBackendRuntime::open_recordings_folder(

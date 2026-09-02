@@ -1107,7 +1107,7 @@ public:
         const int fps = std::clamp(frame_rate, 1, 60);
         std::wstring command = quote_argument(ffmpeg_path) +
             L" -hide_banner -loglevel error -y -use_wallclock_as_timestamps 1"
-            L" -f rawvideo -pixel_format bgra -video_size " +
+            L" -f rawvideo -pixel_format rgba -video_size " +
             std::to_wstring(width) + L"x" + std::to_wstring(height) +
             L" -framerate " + std::to_wstring(fps) +
             L" -i pipe:0 -map 0:v:0 -an ";
@@ -1149,7 +1149,7 @@ public:
         return true;
     }
 
-    void write(const DecodedFrame& frame) {
+    void write(DecodedFrame frame) {
         if (!running_) return;
         if (frame.width <= 0 || frame.height <= 0 ||
             frame.bgra.size() != static_cast<std::size_t>(frame.width) * frame.height * 4) {
@@ -1158,7 +1158,7 @@ public:
         }
         std::vector<std::uint8_t> pixels;
         if (frame.width == width_ && frame.height == height_) {
-            pixels = frame.bgra;
+            pixels = std::move(frame.bgra);
         } else {
             pixels.resize(static_cast<std::size_t>(width_) * height_ * 4);
             for (int y = 0; y < height_; ++y) {
@@ -1265,7 +1265,7 @@ bool CompositedRecorder::start(const std::filesystem::path& directory, int forma
     return impl_->start(directory, format_index, quality, split_minutes, width, height,
                         frame_rate, error);
 }
-void CompositedRecorder::write(const DecodedFrame& frame) { impl_->write(frame); }
+void CompositedRecorder::write(DecodedFrame frame) { impl_->write(std::move(frame)); }
 void CompositedRecorder::stop() { impl_->stop(); }
 bool CompositedRecorder::active() const noexcept { return impl_->running_; }
 bool CompositedRecorder::healthy() const { return impl_->healthy(); }

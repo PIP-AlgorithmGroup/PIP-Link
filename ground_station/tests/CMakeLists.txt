@@ -115,6 +115,7 @@ if(TARGET pip_link_desktop)
                 -DDESKTOP_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/platform/desktop_window.cpp
                 -DRUNTIME_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/backend/ground_station_backend_runtime.cpp
                 -DUI_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/ui/ground_station_ui.cpp
+                -DMEDIA_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/backend/media_pipeline.cpp
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_composited_capture_contract.cmake
     )
 endif()

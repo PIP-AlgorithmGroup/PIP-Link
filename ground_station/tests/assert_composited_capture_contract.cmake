@@ -1,6 +1,7 @@
 file(READ "${DESKTOP_SOURCE}" desktop_source)
 file(READ "${RUNTIME_SOURCE}" runtime_source)
 file(READ "${UI_SOURCE}" ui_source)
+file(READ "${MEDIA_SOURCE}" media_source)
 
 string(FIND "${desktop_source}" "ImGui_ImplDX11_RenderDrawData" render_position)
 string(FIND "${desktop_source}" "capture_composited_frame();" capture_position)
@@ -29,4 +30,19 @@ string(FIND "${desktop_source}" "io.MouseDrawCursor = impl_->backend->needs_comp
        software_cursor)
 if(software_cursor EQUAL -1)
     message(FATAL_ERROR "Captured frames do not include the software mouse cursor")
+endif()
+
+string(FIND "${media_source}" "-pixel_format rgba" rgba_input)
+if(rgba_input EQUAL -1)
+    message(FATAL_ERROR "DXGI R8G8B8A8 capture is not declared as RGBA to FFmpeg")
+endif()
+
+string(FIND "${runtime_source}" "rgba_to_bgra_for_png" png_channel_conversion)
+if(png_channel_conversion EQUAL -1)
+    message(FATAL_ERROR "RGBA back-buffer screenshots are not converted for WIC BGRA")
+endif()
+
+string(FIND "${desktop_source}" "D3D11_MAP_FLAG_DO_NOT_WAIT" nonblocking_map)
+if(nonblocking_map EQUAL -1)
+    message(FATAL_ERROR "Composited capture still blocks the render thread on GPU readback")
 endif()

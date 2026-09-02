@@ -309,7 +309,7 @@ int main() {
         pip_link::backend::CompositedFrame composite_frame;
         composite_frame.width = 16;
         composite_frame.height = 16;
-        composite_frame.bgra.assign(16 * 16 * 4, 0x7f);
+        composite_frame.rgba.assign(16 * 16 * 4, 0x7f);
         backend.submit_composited_frame(composite_frame);
         backend.stop_recording();
         allow_video = true;

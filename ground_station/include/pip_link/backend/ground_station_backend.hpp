@@ -42,7 +42,7 @@ struct VideoSurface final {
 struct CompositedFrame final {
     int width{};
     int height{};
-    std::vector<std::uint8_t> bgra;
+    std::vector<std::uint8_t> rgba;
 };
 
 struct ControlInput final {

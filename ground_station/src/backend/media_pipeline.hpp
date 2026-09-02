@@ -65,7 +65,7 @@ public:
     [[nodiscard]] bool start(const std::filesystem::path& directory, int format_index,
                              int quality, int split_minutes, int width, int height,
                              int frame_rate, std::string& error);
-    void write(const DecodedFrame& frame);
+    void write(DecodedFrame frame);
     void stop();
     [[nodiscard]] bool active() const noexcept;
     [[nodiscard]] bool healthy() const;
