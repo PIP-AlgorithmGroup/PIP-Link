@@ -571,8 +571,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
     if (input_hud_visibility_ > 0.001F) {
         const float opacity = hud_opacity * input_hud_visibility_;
         ImGuiIO& io = ImGui::GetIO();
-        const float target_x = std::clamp(io.MouseDelta.x * 2.3F, -30.0F, 30.0F);
-        const float target_y = std::clamp(io.MouseDelta.y * 2.3F, -30.0F, 30.0F);
+        const float target_x = std::clamp(io.MouseDelta.x * 2.3F, -24.0F, 24.0F);
+        const float target_y = std::clamp(io.MouseDelta.y * 2.3F, -24.0F, 24.0F);
         const float mouse_t = 1.0F - std::exp(-delta_seconds / 0.055F);
         mouse_indicator_x_ += (target_x - mouse_indicator_x_) * mouse_t;
         mouse_indicator_y_ += (target_y - mouse_indicator_y_) * mouse_t;
@@ -587,48 +587,91 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         draw->AddRect(p0, p1, IM_COL32(190, 220, 234, static_cast<int>(75.0F * opacity)),
                       10.0F * unit);
 
-        const ImVec2 mouse_center{p0.x + 64.0F * unit, p0.y + 66.0F * unit};
-        draw->AddCircleFilled(mouse_center, 43.0F * unit,
+        const ImVec2 mouse_center{p0.x + 58.0F * unit, p0.y + 52.0F * unit};
+        draw->AddCircleFilled(mouse_center, 34.0F * unit,
                               IM_COL32(4, 8, 13, static_cast<int>(210.0F * opacity)));
-        draw->AddCircle(mouse_center, 43.0F * unit,
+        draw->AddCircle(mouse_center, 34.0F * unit,
                         IM_COL32(154, 183, 198, static_cast<int>(100.0F * opacity)), 0,
                         1.0F * unit);
-        draw->AddLine({mouse_center.x - 32.0F * unit, mouse_center.y},
-                      {mouse_center.x + 32.0F * unit, mouse_center.y},
+        draw->AddLine({mouse_center.x - 25.0F * unit, mouse_center.y},
+                      {mouse_center.x + 25.0F * unit, mouse_center.y},
                       IM_COL32(117, 150, 166, static_cast<int>(70.0F * opacity)));
-        draw->AddLine({mouse_center.x, mouse_center.y - 32.0F * unit},
-                      {mouse_center.x, mouse_center.y + 32.0F * unit},
+        draw->AddLine({mouse_center.x, mouse_center.y - 25.0F * unit},
+                      {mouse_center.x, mouse_center.y + 25.0F * unit},
                       IM_COL32(117, 150, 166, static_cast<int>(70.0F * opacity)));
         const ImVec2 dot{mouse_center.x + mouse_indicator_x_ * unit,
                          mouse_center.y + mouse_indicator_y_ * unit};
         draw->AddLine(mouse_center, dot, color_with_alpha(accent, opacity * 0.55F), 2.0F * unit);
         draw->AddCircleFilled(dot, 5.5F * unit, color_with_alpha(accent, opacity));
 
-        constexpr std::array<const char*, 7> mouse_labels{
-            "L", "M", "R", "M4", "M5", "↑", "↓"};
-        float mouse_chip_x = p0.x + 122.0F * unit;
-        for (std::size_t index = 0; index < mouse_labels.size(); ++index) {
-            const float chip_w = (index == 3 || index == 4 ? 38.0F : 31.0F) * unit;
-            const ImVec2 c0{mouse_chip_x, p0.y + 29.0F * unit};
-            const ImVec2 c1{c0.x + chip_w, c0.y + 27.0F * unit};
-            const ImVec4 chip_color = blend_color(
-                {43.0F / 255.0F, 54.0F / 255.0F, 65.0F / 255.0F, 185.0F / 255.0F},
-                accent, mouse_input_activity_[index]);
-            draw->AddRectFilled(c0, c1, color_with_alpha(chip_color, opacity),
-                                5.0F * unit);
-            const ImVec2 label_size = ImGui::GetFont()->CalcTextSizeA(
-                hud_font_size, 10000.0F, 0.0F, mouse_labels[index]);
-            draw->AddText(ImGui::GetFont(), hud_font_size,
-                          {c0.x + (chip_w - label_size.x) * 0.5F,
-                           c0.y + (27.0F * unit - label_size.y) * 0.5F},
-                          IM_COL32(238, 247, 252, static_cast<int>(255.0F * opacity)),
-                          mouse_labels[index]);
-            mouse_chip_x += chip_w + 5.0F * unit;
-        }
+        const ImVec2 motion_label_size = ImGui::GetFont()->CalcTextSizeA(
+            hud_font_size, 10000.0F, 0.0F, "MOTION");
         draw->AddText(ImGui::GetFont(), hud_font_size,
-                      {p0.x + 122.0F * unit, p0.y + 70.0F * unit},
+                      {mouse_center.x - motion_label_size.x * 0.5F,
+                       p0.y + 91.0F * unit},
                       IM_COL32(180, 197, 207, static_cast<int>(230.0F * opacity)),
-                      "MOUSE VECTOR");
+                      "MOTION");
+
+        const auto mouse_part_color = [&](std::size_t index) {
+            return color_with_alpha(
+                blend_color({43.0F / 255.0F, 54.0F / 255.0F,
+                             65.0F / 255.0F, 205.0F / 255.0F},
+                            accent, mouse_input_activity_[index]),
+                opacity);
+        };
+        const ImVec2 mouse_body_min{p0.x + 196.0F * unit, p0.y + 12.0F * unit};
+        const ImVec2 mouse_body_max{p0.x + 306.0F * unit, p0.y + 108.0F * unit};
+        const float mouse_split_x = (mouse_body_min.x + mouse_body_max.x) * 0.5F;
+        const float button_bottom = mouse_body_min.y + 43.0F * unit;
+        draw->AddRectFilled(mouse_body_min, mouse_body_max,
+                            IM_COL32(13, 21, 29, static_cast<int>(225.0F * opacity)),
+                            42.0F * unit);
+        draw->AddRectFilled(mouse_body_min,
+                            {mouse_split_x - 1.0F * unit, button_bottom},
+                            mouse_part_color(0), 42.0F * unit,
+                            ImDrawFlags_RoundCornersTopLeft);
+        draw->AddRectFilled({mouse_split_x + 1.0F * unit, mouse_body_min.y},
+                            {mouse_body_max.x, button_bottom}, mouse_part_color(2),
+                            42.0F * unit, ImDrawFlags_RoundCornersTopRight);
+        draw->AddLine({mouse_split_x, mouse_body_min.y},
+                      {mouse_split_x, button_bottom},
+                      IM_COL32(135, 166, 181, static_cast<int>(95.0F * opacity)),
+                      1.0F * unit);
+        draw->AddLine({mouse_body_min.x + 9.0F * unit, button_bottom},
+                      {mouse_body_max.x - 9.0F * unit, button_bottom},
+                      IM_COL32(135, 166, 181, static_cast<int>(70.0F * opacity)),
+                      1.0F * unit);
+
+        const ImVec2 wheel_min{mouse_split_x - 8.0F * unit,
+                               mouse_body_min.y + 13.0F * unit};
+        const ImVec2 wheel_max{mouse_split_x + 8.0F * unit,
+                               mouse_body_min.y + 49.0F * unit};
+        draw->AddRectFilled(wheel_min, wheel_max, mouse_part_color(1), 7.0F * unit);
+        draw->AddTriangleFilled(
+            {mouse_split_x, wheel_min.y + 5.0F * unit},
+            {mouse_split_x - 4.0F * unit, wheel_min.y + 11.0F * unit},
+            {mouse_split_x + 4.0F * unit, wheel_min.y + 11.0F * unit},
+            mouse_part_color(5));
+        draw->AddTriangleFilled(
+            {mouse_split_x, wheel_max.y - 5.0F * unit},
+            {mouse_split_x - 4.0F * unit, wheel_max.y - 11.0F * unit},
+            {mouse_split_x + 4.0F * unit, wheel_max.y - 11.0F * unit},
+            mouse_part_color(6));
+
+        const ImVec2 side_button_min{mouse_body_min.x - 7.0F * unit,
+                                     mouse_body_min.y + 53.0F * unit};
+        draw->AddRectFilled(side_button_min,
+                            {mouse_body_min.x + 7.0F * unit,
+                             side_button_min.y + 14.0F * unit},
+                            mouse_part_color(3), 4.0F * unit);
+        draw->AddRectFilled({side_button_min.x,
+                             side_button_min.y + 19.0F * unit},
+                            {mouse_body_min.x + 7.0F * unit,
+                             side_button_min.y + 33.0F * unit},
+                            mouse_part_color(4), 4.0F * unit);
+        draw->AddRect(mouse_body_min, mouse_body_max,
+                      IM_COL32(154, 183, 198, static_cast<int>(120.0F * opacity)),
+                      42.0F * unit, 0, 1.2F * unit);
 
         draw->AddLine({p0.x + 14.0F * unit, p0.y + 116.0F * unit},
                       {p1.x - 14.0F * unit, p0.y + 116.0F * unit},

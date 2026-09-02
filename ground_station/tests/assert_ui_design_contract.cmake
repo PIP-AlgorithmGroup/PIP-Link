@@ -42,7 +42,10 @@ if(no_video EQUAL -1 OR hud EQUAL -1 OR hud LESS no_video)
 endif()
 
 string(FIND "${ui_header}" "std::array<float, 7> mouse_input_activity_" wheel_activity)
-string(FIND "${ui_source}" "\"M5\", \"↑\", \"↓\"" wheel_chips)
-if(wheel_activity EQUAL -1 OR wheel_chips EQUAL -1)
-    message(FATAL_ERROR "Mouse wheel up and down must use independent HUD chips")
+string(FIND "${ui_source}" "\"↑\"" font_wheel_up)
+string(FIND "${ui_source}" "\"↓\"" font_wheel_down)
+string(FIND "${ui_source}" "const ImVec2 mouse_body_min" mouse_diagram)
+if(wheel_activity EQUAL -1 OR NOT font_wheel_up EQUAL -1 OR
+   NOT font_wheel_down EQUAL -1 OR mouse_diagram EQUAL -1)
+    message(FATAL_ERROR "Mouse inputs must use a font-independent mouse diagram")
 endif()
