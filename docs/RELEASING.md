@@ -172,7 +172,7 @@ gh release create v3.0.0 `
 最后检查远端信息和附件：
 
 ```powershell
-gh release view v3.0.0 --json url,tagName,name,isLatest,assets,publishedAt
+gh release view v3.0.0 --json url,tagName,name,assets,publishedAt
 ```
 
 已发布版本不要移动或重建同名标签。需要修复安装器时提升补丁版本，例如 `3.0.1`，重新执行整套流程。
