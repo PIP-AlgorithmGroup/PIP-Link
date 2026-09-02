@@ -55,12 +55,15 @@ string(FIND "${ui_source}" "side_button_indices{4, 3}" swapped_side_buttons)
 string(FIND "${ui_source}" "part_color(activity[5])" wheel_up_fill)
 string(FIND "${ui_source}" "part_color(activity[6])" wheel_down_fill)
 string(FIND "${ui_source}" "wheel_outline_color = part_color(activity[1])" middle_click_outline)
+string(FIND "${ui_source}" "const float panel_w = 230.0F * unit;" compact_input_width)
+string(FIND "${ui_source}" "const float panel_h = 210.0F * unit;" compact_input_height)
 if(wheel_activity EQUAL -1 OR NOT font_wheel_up EQUAL -1 OR
    NOT font_wheel_down EQUAL -1 OR mouse_diagram EQUAL -1 OR
    embedded_movement EQUAL -1 OR NOT external_motion_widget EQUAL -1 OR
    centered_arrow EQUAL -1 OR side_background EQUAL -1 OR mouse_body EQUAL -1 OR
    side_background GREATER mouse_body OR shifted_side_label EQUAL -1 OR
    swapped_side_buttons EQUAL -1 OR wheel_up_fill EQUAL -1 OR
-   wheel_down_fill EQUAL -1 OR middle_click_outline EQUAL -1)
+   wheel_down_fill EQUAL -1 OR middle_click_outline EQUAL -1 OR
+   compact_input_width EQUAL -1 OR compact_input_height EQUAL -1)
     message(FATAL_ERROR "Mouse diagram layering or centered motion arrow is incomplete")
 endif()
