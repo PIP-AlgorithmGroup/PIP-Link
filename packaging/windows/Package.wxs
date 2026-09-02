@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="PIP-Link"
+           Manufacturer="PIP Algorithm Group"
+           Version="$(var.ProductVersion)"
+           Language="2052"
+           Codepage="65001"
+           Scope="perUser"
+           UpgradeCode="{3CCBA9CF-40C0-4C38-8417-92F47374EEB1}">
+    <MajorUpgrade DowngradeErrorMessage="已安装更新版本的 PIP-Link。" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="PIPLinkIcon" SourceFile="$(var.PayloadDirectory)\assets\icon.ico" />
+    <Property Id="ARPPRODUCTICON" Value="PIPLinkIcon" />
+
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <UIRef Id="WixUI_ErrorProgressText" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(sys.SOURCEFILEDIR)License.rtf" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+      <Directory Id="INSTALLFOLDER" Name="PIP-Link">
+        <Component Id="ApplicationComponent" Guid="{A18FFF96-6BDF-41A7-9E71-39F3A8016878}">
+          <File Id="ApplicationFile"
+                Source="$(var.PayloadDirectory)\PIP-Link.exe">
+            <Shortcut Id="StartMenuShortcut"
+                      Directory="ProgramMenuFolder"
+                      Name="PIP-Link"
+                      Description="机器人第一视角控制客户端"
+                      WorkingDirectory="INSTALLFOLDER" />
+          </File>
+          <RegistryValue Root="HKCU"
+                         Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                         Name="Application"
+                         Type="integer"
+                         Value="1"
+                         KeyPath="yes" />
+          <RemoveFolder Id="RemoveInstallFolder" Directory="INSTALLFOLDER" On="uninstall" />
+          <RemoveFolder Id="RemoveProgramsFolder" Directory="ProgramsFolder" On="uninstall" />
+        </Component>
+        <Component Id="FfmpegComponent" Guid="{3B7A6E5F-6E6A-4012-9FFD-5648EDCC5E95}">
+          <File Id="FfmpegFile" Source="$(var.PayloadDirectory)\ffmpeg.exe" />
+          <RegistryValue Root="HKCU" Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                         Name="Ffmpeg" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+        <Component Id="ReadmeComponent" Guid="{64A3E879-CC63-434B-BA57-8E091C2CD667}">
+          <File Id="ReadmeFile" Source="$(var.PayloadDirectory)\README.md" />
+          <RegistryValue Root="HKCU" Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                         Name="Readme" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+        <Component Id="LicenseComponent" Guid="{1742F657-1F00-42D0-8796-5C1FC022E972}">
+          <File Id="LicenseFile" Source="$(var.PayloadDirectory)\LICENSE.txt" />
+          <RegistryValue Root="HKCU" Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                         Name="License" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+        <Component Id="FfmpegLicenseComponent" Guid="{A07501F1-25BA-48F7-89D3-A1131379E657}">
+          <File Id="FfmpegLicenseFile"
+                Source="$(var.PayloadDirectory)\FFmpeg-LICENSE.txt" />
+          <RegistryValue Root="HKCU" Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                         Name="FfmpegLicense" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+        <Directory Id="AssetsFolder" Name="assets">
+          <Component Id="RuntimeIconComponent" Guid="{16E5CE03-6AF9-490E-99B8-CDBCD71995A4}">
+            <File Id="RuntimeIconFile"
+                  Source="$(var.PayloadDirectory)\assets\icon.bmp" />
+            <RegistryValue Root="HKCU" Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                           Name="RuntimeIcon" Type="integer" Value="1" KeyPath="yes" />
+            <RemoveFolder Id="RemoveAssetsFolder" Directory="AssetsFolder" On="uninstall" />
+          </Component>
+          <Component Id="InstallerIconComponent" Guid="{F8D8FF92-D6F3-41B8-9ECA-3041194018A8}">
+            <File Id="InstallerIconFile"
+                  Source="$(var.PayloadDirectory)\assets\icon.ico" />
+            <RegistryValue Root="HKCU" Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                           Name="InstallerIcon" Type="integer" Value="1" KeyPath="yes" />
+          </Component>
+          <Directory Id="RuntimeFontsFolder" Name="fonts">
+            <Component Id="ChineseFontComponent" Guid="{7055F353-6100-4B51-AAF1-88A09F325B28}">
+              <File Id="ChineseFontFile"
+                    Source="$(var.PayloadDirectory)\assets\fonts\NotoSansCJKsc-Regular.otf" />
+              <RegistryValue Root="HKCU" Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                             Name="ChineseFont" Type="integer" Value="1" KeyPath="yes" />
+              <RemoveFolder Id="RemoveRuntimeFontsFolder" Directory="RuntimeFontsFolder" On="uninstall" />
+            </Component>
+            <Component Id="ChineseFontLicenseComponent" Guid="{448692FE-D5AF-4829-BE9C-2D5555F87787}">
+              <File Id="ChineseFontLicenseFile"
+                    Source="$(var.PayloadDirectory)\assets\fonts\NotoSansCJK-LICENSE.txt" />
+              <RegistryValue Root="HKCU" Key="Software\PIP Algorithm Group\PIP-Link\Components"
+                             Name="ChineseFontLicense" Type="integer" Value="1" KeyPath="yes" />
+            </Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="PIP-Link" Level="1">
+      <ComponentRef Id="ApplicationComponent" />
+      <ComponentRef Id="FfmpegComponent" />
+      <ComponentRef Id="ReadmeComponent" />
+      <ComponentRef Id="LicenseComponent" />
+      <ComponentRef Id="FfmpegLicenseComponent" />
+      <ComponentRef Id="RuntimeIconComponent" />
+      <ComponentRef Id="InstallerIconComponent" />
+      <ComponentRef Id="ChineseFontComponent" />
+      <ComponentRef Id="ChineseFontLicenseComponent" />
+    </Feature>
+  </Package>
+</Wix>

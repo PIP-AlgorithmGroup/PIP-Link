@@ -27,5 +27,9 @@ Thumbs.db
 
 # pyinstaller
 installer/
-packaging/installer
+packaging/*
+!packaging/windows/
+!packaging/windows/**
+packaging/windows/bin/
+packaging/windows/obj/
 .claude/

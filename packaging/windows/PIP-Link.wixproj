@@ -1,0 +1,16 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <InstallerPlatform>x64</InstallerPlatform>
+    <Cultures>zh-CN</Cultures>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">3.0.0</ProductVersion>
+    <PayloadDirectory Condition="'$(PayloadDirectory)' == ''">$(MSBuildThisFileDirectory)..\..\out\package\PIP-Link-v$(ProductVersion)-win64</PayloadDirectory>
+    <OutputName>PIP-Link-v$(ProductVersion)-x64</OutputName>
+    <DefineConstants>ProductVersion=$(ProductVersion);PayloadDirectory=$(PayloadDirectory)</DefineConstants>
+    <!-- Fixed per-user scope makes ICE91 inapplicable; ICE60 misidentifies the
+         bundled OpenType CJK font as a versioned application binary. -->
+    <SuppressIces>ICE60;ICE91</SuppressIces>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="WixToolset.UI.wixext" Version="5.0.2" />
+  </ItemGroup>
+</Project>
