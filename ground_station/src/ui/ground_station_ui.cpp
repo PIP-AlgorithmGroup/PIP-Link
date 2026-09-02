@@ -701,8 +701,8 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         mouse_indicator_x_ += (target_x - mouse_indicator_x_) * mouse_t;
         mouse_indicator_y_ += (target_y - mouse_indicator_y_) * mouse_t;
 
-        const float panel_w = 230.0F * unit;
-        const float panel_h = 210.0F * unit;
+        const float panel_w = 300.0F * unit;
+        const float panel_h = 148.0F * unit;
         const float slide = (1.0F - input_hud_visibility_) * 14.0F * unit;
         const ImVec2 p0{origin.x + margin, origin.y + size.y - margin - panel_h + slide};
         const ImVec2 p1{p0.x + panel_w, p0.y + panel_h};
@@ -711,17 +711,18 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
         draw->AddRect(p0, p1, IM_COL32(190, 220, 234, static_cast<int>(75.0F * opacity)),
                       10.0F * unit);
 
-        draw_mouse_diagram(draw, {p0.x + 115.0F * unit, p0.y + 66.0F * unit},
+        draw_mouse_diagram(draw, {p0.x + 68.0F * unit, p0.y + 74.0F * unit},
                            unit, opacity, mouse_indicator_x_, mouse_indicator_y_,
                            mouse_input_activity_);
 
-        draw->AddLine({p0.x + 14.0F * unit, p0.y + 134.0F * unit},
-                      {p1.x - 14.0F * unit, p0.y + 134.0F * unit},
+        const float divider_x = p0.x + 124.0F * unit;
+        draw->AddLine({divider_x, p0.y + 14.0F * unit},
+                      {divider_x, p1.y - 14.0F * unit},
                       IM_COL32(160, 185, 198, static_cast<int>(55.0F * opacity)));
-        ImVec2 tag_cursor{p0.x + 14.0F * unit, p0.y + 147.0F * unit};
-        const ImVec2 tag_bounds{p1.x - 14.0F * unit, p0.x + 14.0F * unit};
+        ImVec2 tag_cursor{p0.x + 140.0F * unit, p0.y + 18.0F * unit};
+        const ImVec2 tag_bounds{p1.x - 14.0F * unit, p0.x + 140.0F * unit};
         int pressed_count = 0;
-        draw->PushClipRect({p0.x + 12.0F * unit, p0.y + 141.0F * unit},
+        draw->PushClipRect({p0.x + 134.0F * unit, p0.y + 10.0F * unit},
                            {p1.x - 12.0F * unit, p1.y - 10.0F * unit}, true);
         const auto key_visuals = protocol_key_visuals();
         for (std::size_t index = 0; index < key_visuals.size(); ++index) {
@@ -731,7 +732,11 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
             ++pressed_count;
         }
         if (pressed_count == 0) {
-            draw->AddText(ImGui::GetFont(), hud_font_size, tag_cursor,
+            const ImVec2 no_input_size = ImGui::GetFont()->CalcTextSizeA(
+                hud_font_size, 10000.0F, 0.0F, "NO KEY INPUT");
+            draw->AddText(ImGui::GetFont(), hud_font_size,
+                          {(divider_x + p1.x - no_input_size.x) * 0.5F,
+                           p0.y + (panel_h - no_input_size.y) * 0.5F},
                           IM_COL32(170, 186, 197, static_cast<int>(220.0F * opacity)),
                           "NO KEY INPUT");
         }
