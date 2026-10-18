@@ -1,6 +1,6 @@
 param(
     [ValidatePattern('^\d+\.\d+\.\d+$')]
-    [string]$Version = '3.0.1',
+    [string]$Version = '3.0.2',
     [string]$FfmpegExecutable = '',
     [string]$FfmpegLicense = ''
 )
