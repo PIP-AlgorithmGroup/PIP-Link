@@ -162,6 +162,31 @@ int main() {
         return 1;
     }
     ui.set_mouse_capture_active(true);
+
+    ui.add_relative_mouse_delta(2048.0F, -1536.0F);
+    draw_frame(ui);
+    if (backend.control_packets != 1 ||
+        std::abs(backend.last_input.mouse_delta_x - 2048.0F) > 0.01F ||
+        std::abs(backend.last_input.mouse_delta_y + 1536.0F) > 0.01F) {
+        std::cerr << "Relative mouse motion was lost at the virtual cursor edge.\n";
+        return 1;
+    }
+    ui.add_relative_mouse_delta(-17.0F, 9.0F);
+    draw_frame(ui);
+    if (backend.control_packets != 2 ||
+        std::abs(backend.last_input.mouse_delta_x + 17.0F) > 0.01F ||
+        std::abs(backend.last_input.mouse_delta_y - 9.0F) > 0.01F) {
+        std::cerr << "Relative mouse motion did not reverse immediately.\n";
+        return 1;
+    }
+    draw_frame(ui);
+    if (std::abs(backend.last_input.mouse_delta_x) > 0.01F ||
+        std::abs(backend.last_input.mouse_delta_y) > 0.01F) {
+        std::cerr << "Relative mouse motion was submitted more than once.\n";
+        return 1;
+    }
+
+    const int control_packets_before_gamepad = backend.control_packets;
     pip_link::ui::GamepadSnapshot gamepad{};
     gamepad.connected = true;
     gamepad.name = "Test Gamepad";
@@ -170,7 +195,7 @@ int main() {
     gamepad.left_shoulder = true;
     ui.set_gamepad_snapshot(gamepad);
     draw_frame(ui);
-    if (backend.control_packets != 1) {
+    if (backend.control_packets != control_packets_before_gamepad + 1) {
         std::cerr << "Control input was not sent after mouse capture confirmation.\n";
         return 1;
     }

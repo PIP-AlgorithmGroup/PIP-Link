@@ -545,6 +545,12 @@ int DesktopWindow::run() {
         SDL_Event event{};
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL3_ProcessEvent(&event);
+            if (event.type == SDL_EVENT_MOUSE_MOTION &&
+                event.motion.windowID == SDL_GetWindowID(impl_->window) &&
+                SDL_GetWindowRelativeMouseMode(impl_->window)) {
+                // Relative motion remains valid when ImGui's window coordinates reach an edge.
+                impl_->ui->add_relative_mouse_delta(event.motion.xrel, event.motion.yrel);
+            }
             if (event.type == SDL_EVENT_QUIT ||
                 (event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED &&
                  event.window.windowID == SDL_GetWindowID(impl_->window))) {

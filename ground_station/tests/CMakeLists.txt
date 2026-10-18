@@ -123,4 +123,12 @@ if(TARGET pip_link_desktop)
                 -DMEDIA_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/backend/media_pipeline.cpp
                 -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_composited_capture_contract.cmake
     )
+    add_test(
+        NAME pip_link_relative_mouse_contract_test
+        COMMAND ${CMAKE_COMMAND}
+                -DDESKTOP_WINDOW_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/platform/desktop_window.cpp
+                -DUI_SOURCE=${CMAKE_SOURCE_DIR}/ground_station/src/ui/ground_station_ui.cpp
+                -DUI_HEADER=${CMAKE_SOURCE_DIR}/ground_station/include/pip_link/ui/ground_station_ui.hpp
+                -P ${CMAKE_CURRENT_SOURCE_DIR}/assert_relative_mouse_contract.cmake
+    )
 endif()

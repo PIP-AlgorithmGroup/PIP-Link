@@ -10,7 +10,7 @@ utils/__pycache__
 dist/
 build/
 /out/
-/cmake-build-*/
+cmake-build-*/
 demo/
 recordings/
 screenshots/

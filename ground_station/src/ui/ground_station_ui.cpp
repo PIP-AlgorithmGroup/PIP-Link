@@ -290,7 +290,18 @@ bool GroundStationUi::wants_relative_mouse_mode() const noexcept {
 }
 
 void GroundStationUi::set_mouse_capture_active(bool active) noexcept {
+    if (mouse_capture_active_ != active) {
+        relative_mouse_delta_x_ = 0.0F;
+        relative_mouse_delta_y_ = 0.0F;
+        last_relative_mouse_delta_x_ = 0.0F;
+        last_relative_mouse_delta_y_ = 0.0F;
+    }
     mouse_capture_active_ = active;
+}
+
+void GroundStationUi::add_relative_mouse_delta(float x, float y) noexcept {
+    relative_mouse_delta_x_ += x;
+    relative_mouse_delta_y_ += y;
 }
 
 void GroundStationUi::set_gamepad_snapshot(GamepadSnapshot snapshot) {
@@ -332,6 +343,10 @@ void GroundStationUi::on_focus_lost() {
 
 void GroundStationUi::on_mouse_capture_failed() {
     mouse_capture_active_ = false;
+    relative_mouse_delta_x_ = 0.0F;
+    relative_mouse_delta_y_ = 0.0F;
+    last_relative_mouse_delta_x_ = 0.0F;
+    last_relative_mouse_delta_y_ = 0.0F;
     leave_ready("无法捕获鼠标，已自动退出 READY");
 }
 
@@ -405,15 +420,25 @@ void GroundStationUi::toggle_ready() {
 }
 
 void GroundStationUi::submit_control_input(float delta_seconds) {
+    const float relative_mouse_delta_x = relative_mouse_delta_x_;
+    const float relative_mouse_delta_y = relative_mouse_delta_y_;
+    relative_mouse_delta_x_ = 0.0F;
+    relative_mouse_delta_y_ = 0.0F;
+    last_relative_mouse_delta_x_ = 0.0F;
+    last_relative_mouse_delta_y_ = 0.0F;
+
     if (!ready_ || settings_open_ || console_open_) return;
     if (capture_mouse_ && !mouse_capture_active_) return;
     ImGuiIO& io = ImGui::GetIO();
     backend::ControlInput input{};
-    input.mouse_delta_x = capture_mouse_ ? io.MouseDelta.x * mouse_sensitivity_ : 0.0F;
-    input.mouse_delta_y = capture_mouse_
-                              ? io.MouseDelta.y * mouse_sensitivity_ *
-                                    (invert_y_ || invert_pitch_ ? -1.0F : 1.0F)
-                              : 0.0F;
+    if (capture_mouse_) {
+        // ImGui::MouseDelta is derived from clamped absolute coordinates in relative mode.
+        input.mouse_delta_x = relative_mouse_delta_x * mouse_sensitivity_;
+        input.mouse_delta_y = relative_mouse_delta_y * mouse_sensitivity_ *
+                              (invert_y_ || invert_pitch_ ? -1.0F : 1.0F);
+        last_relative_mouse_delta_x_ = relative_mouse_delta_x;
+        last_relative_mouse_delta_y_ = relative_mouse_delta_y;
+    }
     if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) input.mouse_buttons |= 0x01U;
     if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) input.mouse_buttons |= 0x02U;
     if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) input.mouse_buttons |= 0x04U;
@@ -919,8 +944,14 @@ void GroundStationUi::draw_fpv(float delta_seconds, float scale) {
     if (input_hud_visibility_ > 0.001F) {
         const float opacity = hud_opacity * input_hud_visibility_;
         ImGuiIO& io = ImGui::GetIO();
-        const float target_x = std::clamp(io.MouseDelta.x * 2.3F, -24.0F, 24.0F);
-        const float target_y = std::clamp(io.MouseDelta.y * 2.3F, -24.0F, 24.0F);
+        const float motion_x = ready_ && capture_mouse_ && mouse_capture_active_
+                                   ? last_relative_mouse_delta_x_
+                                   : io.MouseDelta.x;
+        const float motion_y = ready_ && capture_mouse_ && mouse_capture_active_
+                                   ? last_relative_mouse_delta_y_
+                                   : io.MouseDelta.y;
+        const float target_x = std::clamp(motion_x * 2.3F, -24.0F, 24.0F);
+        const float target_y = std::clamp(motion_y * 2.3F, -24.0F, 24.0F);
         const float mouse_t = 1.0F - std::exp(-delta_seconds / 0.055F);
         mouse_indicator_x_ += (target_x - mouse_indicator_x_) * mouse_t;
         mouse_indicator_y_ += (target_y - mouse_indicator_y_) * mouse_t;

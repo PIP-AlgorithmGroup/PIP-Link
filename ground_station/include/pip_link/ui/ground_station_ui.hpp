@@ -33,6 +33,7 @@ public:
     void draw(float delta_seconds, float display_scale);
     void on_focus_lost();
     void on_mouse_capture_failed();
+    void add_relative_mouse_delta(float x, float y) noexcept;
     void set_mouse_capture_active(bool active) noexcept;
     void set_gamepad_snapshot(GamepadSnapshot snapshot);
     [[nodiscard]] bool gamepad_vibration_enabled() const noexcept;
@@ -93,6 +94,10 @@ private:
     bool invert_pitch_{false};
     bool capture_mouse_{true};
     bool mouse_capture_active_{false};
+    float relative_mouse_delta_x_{0.0F};
+    float relative_mouse_delta_y_{0.0F};
+    float last_relative_mouse_delta_x_{0.0F};
+    float last_relative_mouse_delta_y_{0.0F};
     bool send_keyboard_{true};
     bool show_input_hud_{true};
     bool show_status_hud_{true};
