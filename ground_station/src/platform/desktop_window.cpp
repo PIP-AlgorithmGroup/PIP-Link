@@ -1,5 +1,7 @@
 #include "pip_link/platform/desktop_window.hpp"
 
+#include "mouse_capture.hpp"
+
 #include "pip_link/backend/ground_station_backend.hpp"
 #include "pip_link/ui/ground_station_ui.hpp"
 
@@ -146,6 +148,26 @@ void apply_theme(float scale) {
 }
 
 }  // namespace
+
+bool set_relative_mouse_capture(SDL_Window* window, bool enabled) {
+    if (SDL_GetWindowRelativeMouseMode(window) != enabled &&
+        !SDL_SetWindowRelativeMouseMode(window, enabled)) {
+        return false;
+    }
+
+    ImGuiIO& io = ImGui::GetIO();
+    if (enabled) {
+        if (!SDL_HideCursor()) return false;
+        // ImGui's SDL backend would otherwise call SDL_ShowCursor every frame.
+        io.ConfigFlags |= ImGuiConfigFlags_NoMouseCursorChange;
+        ImGui::SetMouseCursor(ImGuiMouseCursor_None);
+    } else if ((io.ConfigFlags & ImGuiConfigFlags_NoMouseCursorChange) != 0) {
+        if (!SDL_ShowCursor()) return false;
+        ImGui::SetMouseCursor(ImGuiMouseCursor_Arrow);
+        io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
+    }
+    return true;
+}
 
 struct DesktopWindow::Impl final {
     struct CaptureSlot final {
@@ -400,11 +422,7 @@ struct DesktopWindow::Impl final {
         if (!ui) return;
         const bool requested = ui->wants_relative_mouse_mode();
         const bool active = SDL_GetWindowRelativeMouseMode(window);
-        if (requested == active) {
-            ui->set_mouse_capture_active(active);
-            return;
-        }
-        if (!SDL_SetWindowRelativeMouseMode(window, requested)) {
+        if (!set_relative_mouse_capture(window, requested)) {
             std::cerr << "Relative mouse mode change failed: " << SDL_GetError() << '\n';
             ui->set_mouse_capture_active(active);
             if (requested) ui->on_mouse_capture_failed();

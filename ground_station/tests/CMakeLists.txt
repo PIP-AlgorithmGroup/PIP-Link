@@ -89,6 +89,11 @@ if(TARGET pip_link_desktop)
     add_executable(pip_link_p1_regression_test p1_regression_test.cpp)
     target_link_libraries(pip_link_p1_regression_test PRIVATE pip_link_desktop pip_link_imgui)
     add_test(NAME pip_link_p1_regression_test COMMAND pip_link_p1_regression_test)
+    add_executable(pip_link_mouse_capture_test mouse_capture_test.cpp)
+    target_include_directories(pip_link_mouse_capture_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/ground_station/src)
+    target_link_libraries(pip_link_mouse_capture_test PRIVATE pip_link_desktop pip_link_imgui)
+    add_test(NAME pip_link_mouse_capture_test COMMAND pip_link_mouse_capture_test)
     add_test(
         NAME pip_link_backend_authoritative_state_test
         COMMAND ${CMAKE_COMMAND}
